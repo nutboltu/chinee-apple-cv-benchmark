@@ -1,0 +1,44 @@
+# weed-detection-experiments
+
+PhD research repository for evaluating computer-vision models on detecting
+**Chinee apple** (*Ziziphus mauritiana*) — a Weed of National Significance in
+Australia that invades rangelands and pastures and is difficult to distinguish
+from surrounding vegetation in aerial and ground imagery.
+
+Each subdirectory is a self-contained experiment: a single model family, its
+runtime, and the scripts used to evaluate it on Chinee apple imagery.
+
+## Experiments
+
+| Directory | Model | Task | Status |
+| --- | --- | --- | --- |
+| [`dinov3-colab/`](./dinov3-colab) | DINOv3 (ViT-B/16) | Unsupervised foreground localization via PCA over patch tokens. Run either as a self-contained Colab notebook (`dinov3_colab.ipynb`) or by SSHing into a Colab VM (`colab_ssh_bootstrap.ipynb` + `dinov3_detect.py`) | Bootstrap |
+
+More experiments (e.g. supervised detectors, segmentation backbones,
+fine-tuned classifiers) will be added as sibling directories.
+
+## Layout
+
+```
+weed-detection-experiments/
+├── README.md            ← you are here
+└── <experiment-name>/   ← one folder per model/approach
+    ├── README*.md       ← setup + how to run this experiment
+    ├── requirements.txt
+    └── <scripts / notebooks>
+```
+
+## Adding a new experiment
+
+1. Create a new sibling directory named after the model or approach.
+2. Include a short README covering: model, dataset split, how to run, and
+   what metric/output the experiment produces.
+3. Pin dependencies in a `requirements.txt` (or equivalent) local to that
+   experiment so runs stay reproducible.
+4. Add a row to the table above.
+
+## Target weed
+
+Chinee apple (*Ziziphus mauritiana*) — thorny shrub / small tree, dense
+canopy, small ovate leaves. Visual cues used by these experiments include
+leaf shape, canopy texture, and (where in season) fruit colour.

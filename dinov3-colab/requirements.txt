@@ -1,0 +1,7 @@
+torch>=2.2
+torchvision>=0.17
+pillow
+numpy
+scipy
+scikit-learn
+gradio>=4.0
