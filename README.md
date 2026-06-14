@@ -14,7 +14,7 @@ runtime, and the scripts used to evaluate it on Chinee apple imagery.
 
 | Directory | Model | Task | Status |
 | --- | --- | --- | --- |
-| [`dinov3-colab/`](./dinov3-colab) | DINOv3 (ViT-B/16) | Unsupervised foreground localization via PCA over patch tokens. Run either as a self-contained Colab notebook (`dinov3_colab.ipynb`) or by SSHing into a Colab VM (`colab_ssh_bootstrap.ipynb` + `dinov3_detect.py`) | Bootstrap |
+| [`dinov3-colab/`](./dinov3-colab) | DINOv3 (ViT-B/16) | Unsupervised foreground localization via [CLS]-token similarity over patch tokens. Run either as a self-contained Colab notebook (`dinov3_colab.ipynb`) or by SSHing into a Colab VM (`colab_ssh_bootstrap.ipynb` + `dinov3_detect.py`) | Bootstrap |
 
 More experiments (e.g. supervised detectors, segmentation backbones,
 fine-tuned classifiers) will be added as sibling directories.

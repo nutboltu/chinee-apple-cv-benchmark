@@ -2,9 +2,9 @@
 DINOv3 single-object localization demo.
 
 Loads the official DINOv3 backbone (https://github.com/facebookresearch/dinov3),
-extracts per-patch features, finds the foreground via PCA over the patch tokens
-(the recipe from the official `notebooks/pca.ipynb`), and draws a bounding box
-around the dominant object. A Gradio UI lets you drag in an image.
+extracts per-patch features, finds the foreground via cosine similarity between
+the [CLS] token and each patch token, and draws a bounding box around the
+dominant object. A Gradio UI lets you drag in an image.
 
 Setup
 -----
@@ -27,7 +27,6 @@ import argparse
 import numpy as np
 import torch
 from PIL import Image, ImageDraw
-from sklearn.decomposition import PCA
 from torchvision import transforms
 
 PATCH = 16
@@ -60,22 +59,19 @@ def preprocess(image: Image.Image) -> torch.Tensor:
 
 
 @torch.inference_mode()
-def patch_features(model, image: Image.Image, device: str) -> np.ndarray:
+def cls_saliency(model, image: Image.Image, device: str) -> np.ndarray:
     x = preprocess(image).to(device)
     out = model.forward_features(x)
-    tokens = out["x_norm_patchtokens"][0]
+    cls = out["x_norm_clstoken"][0]
+    patches = out["x_norm_patchtokens"][0]
+    sim = torch.nn.functional.cosine_similarity(patches, cls.unsqueeze(0), dim=-1)
     grid = IMG_SIZE // PATCH
-    return tokens.float().cpu().numpy().reshape(grid, grid, -1)
+    return sim.float().cpu().numpy().reshape(grid, grid)
 
 
-def foreground_mask(features: np.ndarray) -> np.ndarray:
-    h, w, d = features.shape
-    proj = PCA(n_components=1).fit_transform(features.reshape(-1, d)).reshape(h, w)
-    proj = (proj - proj.min()) / (proj.max() - proj.min() + 1e-8)
-    # PCA sign is arbitrary — flip so the smaller region is "foreground".
-    if proj.mean() > 0.5:
-        proj = 1.0 - proj
-    return (proj > 0.5).astype(np.uint8)
+def foreground_mask(sim: np.ndarray) -> np.ndarray:
+    s = (sim - sim.min()) / (sim.max() - sim.min() + 1e-8)
+    return (s > s.mean()).astype(np.uint8)
 
 
 def largest_component_bbox(mask: np.ndarray):
@@ -109,9 +105,9 @@ def build_inferer(repo: str, weights: str, arch: str):
     model = load_model(repo, weights, arch, device)
 
     def infer(image: Image.Image) -> Image.Image:
-        feats = patch_features(model, image, device)
-        bbox = largest_component_bbox(foreground_mask(feats))
-        return annotate(image, bbox, feats.shape[0])
+        sim = cls_saliency(model, image, device)
+        bbox = largest_component_bbox(foreground_mask(sim))
+        return annotate(image, bbox, sim.shape[0])
 
     return infer
 
@@ -133,8 +129,8 @@ def main():
         outputs=gr.Image(type="pil", label="Detected object"),
         title="DINOv3 object localization",
         description=(
-            "Foreground is found via PCA over DINOv3 patch tokens; the largest "
-            "connected blob is boxed. Backbone-only — no class label."
+            "Foreground is the set of patches most similar to the [CLS] token; "
+            "the largest connected blob is boxed. Backbone-only — no class label."
         ),
     ).launch(share=args.share)
 
