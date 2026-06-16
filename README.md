@@ -1,6 +1,7 @@
 # weed-detection-experiments
 
 [![Open dinov3-colab in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/weed-detection-experiments/blob/main/dinov3-colab/dinov3_colab.ipynb)
+[![Open rf-detr in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/weed-detection-experiments/blob/main/rf-detr/rf_detr_colab.ipynb)
 
 PhD research repository for evaluating computer-vision models on detecting
 **Chinee apple** (*Ziziphus mauritiana*) — a Weed of National Significance in
@@ -15,6 +16,7 @@ runtime, and the scripts used to evaluate it on Chinee apple imagery.
 | Directory | Model | Task | Status |
 | --- | --- | --- | --- |
 | [`dinov3-colab/`](./dinov3-colab) | DINOv3 (ViT-B/16) | Unsupervised foreground localization via [CLS]-token similarity over patch tokens. Run either as a self-contained Colab notebook (`dinov3_colab.ipynb`) or by SSHing into a Colab VM (`colab_ssh_bootstrap.ipynb` + `dinov3_detect.py`) | Bootstrap |
+| [`rf-detr/`](./rf-detr) | RF-DETR (Base) | COCO-pretrained DETR-style detector run on the same imagery. Self-contained Colab notebook (`rf_detr_colab.ipynb`) or local script (`rf_detr_detect.py`). Default checkpoint detects COCO classes only — fine-tune for actual Chinee apple detection. | Baseline |
 
 More experiments (e.g. supervised detectors, segmentation backbones,
 fine-tuned classifiers) will be added as sibling directories.

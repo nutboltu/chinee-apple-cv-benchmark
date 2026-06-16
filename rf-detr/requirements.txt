@@ -1,0 +1,4 @@
+rfdetr
+supervision
+pillow
+gradio>=4.0
