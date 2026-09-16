@@ -1,6 +1,6 @@
 # DINOv3 ViT — unsupervised chinee apple localization
 
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/weed-detection-experiments/blob/main/dinov3-vit/dinov3_vit_colab.ipynb)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/dinov3-vit/dinov3_vit_colab.ipynb)
 
 Stage 1 of a **"model first, labels later"** pipeline for detecting
 **Chinee apple** (*Ziziphus mauritiana*) in UAV imagery — with **no manual

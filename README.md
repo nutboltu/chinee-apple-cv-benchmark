@@ -1,8 +1,8 @@
-# weed-detection-experiments
+# chinee-apple-cv-benchmark
 
-[![Open dinov3-colab in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/weed-detection-experiments/blob/main/dinov3-colab/dinov3_colab.ipynb)
-[![Open rf-detr in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/weed-detection-experiments/blob/main/rf-detr/rf_detr_colab.ipynb)
-[![Open dinov3-vit in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/weed-detection-experiments/blob/main/dinov3-vit/dinov3_vit_colab.ipynb)
+[![Open dinov3-colab in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/dinov3-colab/dinov3_colab.ipynb)
+[![Open rf-detr in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/rf-detr/rf_detr_colab.ipynb)
+[![Open dinov3-vit in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/dinov3-vit/dinov3_vit_colab.ipynb)
 
 PhD research repository for evaluating computer-vision models on detecting
 **Chinee apple** (*Ziziphus mauritiana*) — a Weed of National Significance in
@@ -26,7 +26,7 @@ fine-tuned classifiers) will be added as sibling directories.
 ## Layout
 
 ```
-weed-detection-experiments/
+chinee-apple-cv-benchmark/
 ├── README.md            ← you are here
 └── <experiment-name>/   ← one folder per model/approach
     ├── README*.md       ← setup + how to run this experiment
