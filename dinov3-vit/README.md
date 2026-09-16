@@ -21,7 +21,7 @@ structure in the features:
 
 ```
 UAV tile ─▶ DINOv3 ViT-B/16 patch tokens ─▶ L2-normalize
-        ─▶ KMeans (k≈6) over patches ─▶ cluster map overlay
+        ─▶ KMeans (k≈12) over patches ─▶ cluster map overlay
         ─▶ you glance once: "cluster 3 = chinee apple"      ← the only human input
         ─▶ hard mask ∩ soft centroid-similarity heatmap ─▶ boxes
 ```
@@ -43,9 +43,9 @@ flow on a tile you upload.
 pip install -r requirements.txt
 
 # DINOv2 fallback — ungated, works today, same code path:
-python vit_features.py --image tile.jpg --out out/ --family dinov2 -k 6
+python vit_features.py --image tile.jpg --out out/ --family dinov2 -k 12
 #   → writes tile_clusters.png; open it, find the weed's cluster id, then:
-python vit_features.py --image tile.jpg --out out/ --family dinov2 -k 6 \
+python vit_features.py --image tile.jpg --out out/ --family dinov2 -k 12 \
        --target-cluster 3
 
 # DINOv3 ViT-B/16 — gated: accept Meta's license, clone the repo, download weights
@@ -53,7 +53,7 @@ python vit_features.py --image tile.jpg --out out/ --family dinov2 -k 6 \
 git clone https://github.com/facebookresearch/dinov3.git
 python vit_features.py --image tile.jpg --out out/ \
        --repo ./dinov3 --weights ./dinov3_vitb16_pretrain_lvd1689m.pth \
-       -k 6 --target-cluster 3
+       -k 12 --target-cluster 3
 ```
 
 Outputs: `*_clusters.png` (pick from this), `*_heatmap.png`, `*_mask.png`,
@@ -68,7 +68,7 @@ the weights land. `forward_features` returns the same dict for both.
 
 ## Tuning
 
-- **`-k` (clusters):** more clusters = finer land-cover separation. Start at 6.
+- **`-k` (clusters):** more clusters = finer land-cover separation. Start at 12.
   If chinee apple shares a cluster with other trees, raise `k`; if it fragments
   across several, lower it or merge ids.
 - **`--img-size`:** larger keeps small shrubs resolvable (snapped to the patch

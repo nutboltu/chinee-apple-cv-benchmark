@@ -30,7 +30,7 @@ CLI:
 Importable API:
     model, meta = load_backbone(family="dinov2")
     feats, grid = patch_features(model, "tile.jpg", meta)   # (N, D), (gh, gw)
-    labels, centroids = cluster_patches(feats, k=6)
+    labels, centroids = cluster_patches(feats, k=12)
     result = localize(feats, labels, centroids, target_cluster=3, grid=grid, ...)
 """
 
@@ -135,7 +135,7 @@ def patch_features(model, image, meta, img_size: int = 768, l2: bool = True):
 # --------------------------------------------------------------------------- #
 # Unsupervised clustering (the annotation-free "labelling")
 # --------------------------------------------------------------------------- #
-def cluster_patches(feats: np.ndarray, k: int = 6, seed: int = 0):
+def cluster_patches(feats: np.ndarray, k: int = 12, seed: int = 0):
     """KMeans over L2-normalized patch features. Returns (labels [N], centroids [k, D]).
 
     On normalized vectors, Euclidean KMeans approximates spherical/cosine
@@ -287,7 +287,7 @@ def main() -> None:
     ap.add_argument("--weights", default=None, help="DINOv3 .pth checkpoint")
     ap.add_argument("--arch", default=None, help="Hub entrypoint override")
     ap.add_argument("--img-size", type=int, default=768, help="Square input side (snapped to patch)")
-    ap.add_argument("-k", "--clusters", type=int, default=6, help="Number of KMeans clusters")
+    ap.add_argument("-k", "--clusters", type=int, default=12, help="Number of KMeans clusters")
     ap.add_argument("--target-cluster", type=int, default=None,
                     help="Cluster id = chinee apple. If omitted, only writes the cluster overlay "
                          "so you can pick, then re-run with this set.")
