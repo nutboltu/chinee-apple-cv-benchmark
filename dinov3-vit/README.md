@@ -77,25 +77,24 @@ the weights land. `forward_features` returns the same dict for both.
 - **`--threshold`:** relative cutoff on the min-max-normalized centroid
   similarity; lower for recall on faint canopy.
 
-## Roadmap → stage 2 (linear probe)
+## Stage 2 — linear probe (notebook §7–8)
 
-Once the cluster picks look right, promote them to labels and train a probe on
-the frozen features:
+Once the cluster picks look right, the notebook promotes them to labels and
+trains a probe on the frozen features — no hand-drawn crops:
 
-1. Collect `(feats, cluster_id)` across several tiles from `patch_features` +
-   `cluster_patches`.
-2. Treat "chosen cluster" as positive, the rest as negative → logistic
-   regression / small MLP on the frozen 768-d tokens.
-3. Apply the probe per patch on new tiles for class-aware heatmaps — no
-   re-clustering, and it generalizes across tiles where per-tile KMeans ids
-   would not.
-
-This is the point you flagged as "then we'll talk about the line probe."
+1. Save the validated cluster's centroid as the chinee-apple **reference**.
+2. Re-cluster each training tile and assign the positive cluster by nearest
+   centroid to that reference — this handles per-tile KMeans ids being
+   arbitrary and not comparable across tiles.
+3. Pool `(feats, binary label)` and fit a logistic-regression head on the
+   frozen tokens (same head as `dinov3-colab`).
+4. Apply the probe per patch on new tiles for class-aware heatmaps + boxes — no
+   re-clustering, and it generalizes across tiles where raw KMeans ids would not.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `dinov3_vit_colab.ipynb` | Self-contained Colab walkthrough (cluster → pick → mask). |
+| `dinov3_vit_colab.ipynb` | Self-contained Colab walkthrough (cluster → pick → mask → probe). |
 | `vit_features.py` | Importable API + CLI mirror of the notebook. |
 | `requirements.txt` | Pinned-light deps. |
