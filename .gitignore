@@ -1,2 +1,12 @@
 __pycache__/
 *.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+
+# Imagery dataset, tracked outside git (1.5GB raw stills + derived tiles)
+chinee-apple-dataset/
+
+# macOS
+.DS_Store
