@@ -50,27 +50,53 @@ for i,(key,title,sub) in enumerate(classes):
 fig.save(OUT/'marker_classes.png')
 print('marker_classes.png', fig.size)
 
-# ---------- Figure 2: marker in context, arrow points at the plant ----------
-src='DJI_20251118124919_0185.JPG'
-im=Image.open(D/'raw'/src).convert('RGB')
-ctx=im.crop((4600,2300,5600,3300)).resize((620,620),Image.LANCZOS)
-W2=620*2+PAD*3; H2=HDR+620+CAP+PAD
+# ---------- Figure 2: blue marker in context, arrow points at the plant ----------
+import numpy as np
+from scipy import ndimage as ndi
+
+SRC, BLOB = 'DJI_20251118125709_0656.JPG', '630'
+m=[r for r in rows if r['source']==SRC and r['blob']==BLOB][0]
+im=Image.open(D/'raw'/SRC).convert('RGB')
+X0,Y0,X1,Y1 = 5950,1750,6750,2550          # window holding both board and plant
+SIDE=620; k=SIDE/(X1-X0)
+ctx=im.crop((X0,Y0,X1,Y1)).resize((SIDE,SIDE),Image.LANCZOS)
+
+# locate the marked plant by excess green inside the window, left of the board
+a=np.asarray(ctx).astype(np.int16)
+R,G,B=a[...,0],a[...,1],a[...,2]
+veg=ndi.binary_opening((2*G-R-B)>18, np.ones((9,9),bool))
+lab,n=ndi.label(veg)
+best=None
+if n:
+    areas=ndi.sum_labels(veg,lab,index=np.arange(1,n+1))
+    for i in np.argsort(areas)[::-1]:
+        sl=ndi.find_objects(lab)[i]
+        if areas[i]>3000: best=sl; break
+
+mb=[(int(m['x0'])-X0)*k,(int(m['y0'])-Y0)*k,(int(m['x1'])-X0)*k,(int(m['y1'])-Y0)*k]
+
+PADX=12; HDR=52
+W2=SIDE*2+PADX*3; H2=HDR+SIDE+46+PADX
 fig2=Image.new('RGB',(W2,H2),(255,255,255)); d2=ImageDraw.Draw(fig2)
-d2.text((PAD,14),"The arrow identifies the target plant",fill=(20,20,20),font=font(22))
-fig2.paste(ctx,(PAD,HDR))
-d2.rectangle([PAD,HDR,PAD+619,HDR+619],outline=(60,60,60),width=2)
-d2.text((PAD,HDR+626),"Marker in context. The board sits on the canopy edge,",fill=(60,60,60),font=font(15))
-d2.text((PAD,HDR+644),"arrow pointing down into the plant it marks.",fill=(60,60,60),font=font(15))
-# annotated copy
+d2.text((PADX,14),"The blue arrow identifies the target plant",fill=(20,20,20),font=font(22))
+fig2.paste(ctx,(PADX,HDR))
+d2.rectangle([PADX,HDR,PADX+SIDE-1,HDR+SIDE-1],outline=(60,60,60),width=2)
+d2.text((PADX,HDR+SIDE+6),"Marker in context. The blue arrow points up and left,",fill=(60,60,60),font=font(15))
+d2.text((PADX,HDR+SIDE+24),"away from the board and into the plant it marks.",fill=(60,60,60),font=font(15))
+
 ann=ctx.copy(); da=ImageDraw.Draw(ann)
-da.rectangle([(5029-4600)*0.62,(2703-2300)*0.62,(5093-4600)*0.62,(2781-2300)*0.62],outline=(0,230,255),width=3)
-da.ellipse([150,300,470,600],outline=(50,255,80),width=3)
-da.text((150,278),"target plant",fill=(50,255,80),font=font(17))
-da.text((262,222),"marker",fill=(0,230,255),font=font(17))
-x2=PAD*2+620
+da.rectangle(mb,outline=(0,230,255),width=3)
+da.text((mb[0],max(2,mb[1]-20)),"marker",fill=(0,230,255),font=font(17))
+if best:
+    ys,xs=best
+    da.ellipse([xs.start,ys.start,xs.stop,ys.stop],outline=(50,255,80),width=3)
+    # keep the label on-canvas when the blob runs to the top edge
+    ty = ys.start-20 if ys.start>=22 else ys.start+6
+    da.text((xs.start+6,ty),"target plant",fill=(50,255,80),font=font(17))
+x2=PADX*2+SIDE
 fig2.paste(ann,(x2,HDR))
-d2.rectangle([x2,HDR,x2+619,HDR+619],outline=(60,60,60),width=2)
-d2.text((x2,HDR+626),"Cyan is the detected board. Green is the plant that gets",fill=(60,60,60),font=font(15))
-d2.text((x2,HDR+644),"the polygon. Only the plant is annotated.",fill=(60,60,60),font=font(15))
+d2.rectangle([x2,HDR,x2+SIDE-1,HDR+SIDE-1],outline=(60,60,60),width=2)
+d2.text((x2,HDR+SIDE+6),"Cyan is the detected board. Green is the plant that gets",fill=(60,60,60),font=font(15))
+d2.text((x2,HDR+SIDE+24),"the polygon. Only the plant is annotated.",fill=(60,60,60),font=font(15))
 fig2.save(OUT/'marker_in_context.png')
 print('marker_in_context.png', fig2.size)
