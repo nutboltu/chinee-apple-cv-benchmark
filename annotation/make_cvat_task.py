@@ -14,9 +14,11 @@ every detected cardboard marker works out:
                                          trust it without checking. The annotator
                                          reads the arrow direction by eye.
 
-Only the plant is annotated. Markers are NOT annotation objects, they stay visible
+Only the plant is annotated, under the label chinee_apple_matured_30m, which is
+also used verbatim as the SAM3 text prompt. Markers are NOT annotation objects,
+they stay visible
 in the imagery as a reference the annotator reads by eye. The script therefore
-writes a `plant`-only label schema (cvat_labels.json) for task creation, plus a
+writes a single-label schema (cvat_labels.json) for task creation, plus a
 crib sheet (tile_markers.csv) listing which board sits in which tile, with its uid
 and arrow colour, so the annotator can fill in marker_uid without drawing a box.
 Pass --include-markers to also export marker rectangles as a pre-annotation XML.
@@ -59,6 +61,10 @@ DATASET = Path(__file__).resolve().parent.parent / "chinee-apple-dataset" / "mat
 # band because sunlit soil at the board edge otherwise reads as pink.
 BLUE = (105, 175)
 PINK = (210, 252)
+# The single annotation label. It doubles as the text prompt handed to SAM3,
+# so it is also what the model is asked to segment.
+PLANT_LABEL = "chinee_apple_matured_30m"
+
 MIN_PAINT_PX = 60          # below this a board counts as blank
 MIN_BLANK_AREA = 6000      # only call a board "blank" if it is big enough to be sure
 
@@ -167,7 +173,7 @@ def build_xml(tiles: list[dict], markers: list[dict], out_path: Path,
             ("arrow_deg", "text", "", "", True),
             ("marker_uid", "text", "", "", False),
         ])
-    add_label("plant", "polygon", "#32cd32", [
+    add_label(PLANT_LABEL, "polygon", "#32cd32", [
         ("marker_uid", "text", "", "", True),
         ("class", "select", "unsure", "blue\npink\nblank\nunsure", True),
         ("partial", "checkbox", "false", "", True),
@@ -244,7 +250,7 @@ def main() -> int:
             {"name": "marker_uid", "mutable": False, "input_type": "text",
              "default_value": "", "values": []},
         ]})
-    labels.append({"name": "plant", "type": "polygon", "color": "#32cd32", "attributes": [
+    labels.append({"name": PLANT_LABEL, "type": "polygon", "color": "#32cd32", "attributes": [
         {"name": "marker_uid", "mutable": True, "input_type": "text",
          "default_value": "", "values": []},
         {"name": "class", "mutable": True, "input_type": "select",
