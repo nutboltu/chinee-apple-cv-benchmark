@@ -10,3 +10,6 @@ chinee-apple-dataset/
 
 # macOS
 .DS_Store
+
+# Trained probe artefacts
+probe_out/
