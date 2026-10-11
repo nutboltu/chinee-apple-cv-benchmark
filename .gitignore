@@ -6,7 +6,7 @@ __pycache__/
 venv/
 
 # Imagery dataset, tracked outside git (1.5GB raw stills + derived tiles)
-chinee-apple-dataset/
+datasets/
 
 # macOS
 .DS_Store

@@ -30,8 +30,8 @@ excluding them changes little, but a probe that learned "cardboard" would score
 well here and fail on any unmarked imagery. Pass --keep-markers to disable.
 
 Usage:
-    python train_probe.py --zips '../chinee-apple-dataset/.../processed/batch_*.zip' \
-        --tiles '../chinee-apple-dataset/.../processed' --family dinov2
+    python train_probe.py --zips '../../datasets/.../processed/batch_*.zip' \
+        --tiles '../../datasets/.../processed' --family dinov2
     python train_probe.py ... --family dinov3 --repo /path/dinov3 --weights /path/w.pth
     python train_probe.py ... --limit 20 --dry-run     # label geometry only, no backbone
 """

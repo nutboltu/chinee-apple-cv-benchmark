@@ -1,8 +1,7 @@
 # chinee-apple-cv-benchmark
 
-[![Open dinov3-colab in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/dinov3-colab/dinov3_colab.ipynb)
-[![Open rf-detr in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/rf-detr/rf_detr_colab.ipynb)
-[![Open dinov3-vit in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/dinov3-vit/dinov3_vit_colab.ipynb)
+[![Open dinov3-colab in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/pipelines/dinov3-colab/dinov3_colab.ipynb)
+[![Open dinov3-vit in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/pipelines/dinov3-vit/dinov3_vit_colab.ipynb)
 
 PhD research repository for evaluating computer-vision models on detecting
 **Chinee apple** (*Ziziphus mauritiana*) — a Weed of National Significance in
@@ -16,10 +15,11 @@ runtime, and the scripts used to evaluate it on Chinee apple imagery.
 
 | Directory | Model | Task | Status |
 | --- | --- | --- | --- |
-| [`dinov3-colab/`](./dinov3-colab) | DINOv3 (ViT-B/16) | Two paths in `dinov3_colab.ipynb`: (1) unsupervised foreground localization via [CLS]-token similarity over patch tokens, and (2) a **supervised linear probe** on the frozen backbone — train a logistic-regression head on labeled crops to classify Chinee apple vs other trees, then apply it per-patch for class-aware detection heatmaps. Also runs by SSHing into a Colab VM (`colab_ssh_bootstrap.ipynb` + `dinov3_detect.py`). | Probe |
-| [`dinov3-vit/`](./dinov3-vit) | DINOv3 (ViT-B/16) | **Annotation-free localization** in `dinov3_vit_colab.ipynb`: frozen ViT patch tokens → KMeans over patches → pick which cluster is chinee apple *once* → mask/heatmap/boxes. Cluster ids double as pseudo-labels for a stage-2 linear probe (§7–8: centroid-matched pseudo-labels → logistic-regression head → dense detection). DINOv2 fallback for the gated DINOv3 weights. | Stage 2 |
-| [`rf-detr/`](./rf-detr) | RF-DETR (Base) | COCO-pretrained DETR-style detector run on the same imagery. Self-contained Colab notebook (`rf_detr_colab.ipynb`) or local script (`rf_detr_detect.py`). Default checkpoint detects COCO classes only — fine-tune for actual Chinee apple detection. | Baseline |
+| [`pipelines/dinov3-colab/`](./pipelines/dinov3-colab) | DINOv3 (ViT-B/16) | Two paths in `dinov3_colab.ipynb`: (1) unsupervised foreground localization via [CLS]-token similarity over patch tokens, and (2) a **supervised linear probe** on the frozen backbone — train a logistic-regression head on labeled crops to classify Chinee apple vs other trees, then apply it per-patch for class-aware detection heatmaps. Also runs by SSHing into a Colab VM (`colab_ssh_bootstrap.ipynb` + `dinov3_detect.py`). | Probe |
+| [`pipelines/dinov3-vit/`](./pipelines/dinov3-vit) | DINOv3 (ViT-B/16), DINOv2 fallback | **Frozen-backbone probe.** Stage 1 is annotation-free KMeans over patch tokens (`vit_features.py`). Stage 2 is a supervised logistic-regression head trained on the CVAT + SAM3 polygons (`train_probe.py`), run on new imagery with `predict.py`, and compared across heads and resolutions with `compare.py`. End to end in `dinov3_probe_colab.ipynb`. | Probe trained |
 | [`triage/`](./triage) | — (Pillow only) | **Pre-annotation triage.** Narrows thousands of UAV frames to the ones actually containing chinee apple, before anything reaches CVAT. EXIF/GPS manifest → GPS dedup (~84% frame overlap, so ~2/3 are redundant) → one threaded proxy pass → bulk keep/skip in an HTML page or contact sheets → list of originals to annotate. | Tool |
+| [`annotations/`](./annotations) | — | **Dataset preparation.** Tiles 8192x5460 stills into 1024x1024, detects the cardboard ground-truth markers, keeps only tiles containing one, batches them for CVAT, and filters the finished exports down to annotated frames. | Tool |
+| [`metrics/`](./metrics) | — | **Shared metrics.** Backbone-agnostic patch, mask and instance scoring (AP, IoU, Dice, COCO mAP) so every pipeline reports comparable numbers. | Shared |
 
 More experiments (e.g. supervised detectors, segmentation backbones,
 fine-tuned classifiers) will be added as sibling directories.
@@ -29,20 +29,30 @@ fine-tuned classifiers) will be added as sibling directories.
 ```
 chinee-apple-cv-benchmark/
 ├── README.md            ← you are here
-└── <experiment-name>/   ← one folder per model/approach
-    ├── README*.md       ← setup + how to run this experiment
-    ├── requirements.txt
-    └── <scripts / notebooks>
+├── annotations/         ← tiling, marker detection, CVAT task prep and export
+├── datasets/            ← imagery (gitignored, not in the clone)
+│   └── matured-dry-30m/
+│       ├── raw/         ← source stills
+│       └── processed/   ← tiles, batches, CVAT exports
+├── metrics/             ← shared scoring, used by every pipeline
+├── pipelines/           ← one folder per model/approach
+│   ├── dinov3-colab/
+│   └── dinov3-vit/
+└── triage/              ← pre-annotation frame triage
 ```
 
-## Adding a new experiment
+The imagery is deliberately outside git. Clone the repo, then point the
+scripts at wherever you keep `datasets/`.
 
-1. Create a new sibling directory named after the model or approach.
-2. Include a short README covering: model, dataset split, how to run, and
-   what metric/output the experiment produces.
-3. Pin dependencies in a `requirements.txt` (or equivalent) local to that
-   experiment so runs stay reproducible.
-4. Add a row to the table above.
+## Adding a new pipeline
+
+1. Create a directory under `pipelines/` named after the model or approach.
+2. Include a short README covering the model, the dataset split, how to run
+   it, and what it produces.
+3. Pin dependencies in a local `requirements.txt` so runs stay reproducible.
+4. Score with `metrics/` rather than rolling your own, so results stay
+   comparable across pipelines.
+5. Add a row to the table above.
 
 ## Target weed
 

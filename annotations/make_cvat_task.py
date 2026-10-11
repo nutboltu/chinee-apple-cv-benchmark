@@ -54,7 +54,7 @@ Image.MAX_IMAGE_PIXELS = None
 
 # Dataset lives outside the repo tree in git terms (see .gitignore), one level up
 # from this scripts directory.
-DATASET = Path(__file__).resolve().parent.parent / "chinee-apple-dataset" / "matured-dry-30m"
+DATASET = Path(__file__).resolve().parent.parent / "datasets" / "matured-dry-30m"
 
 
 # Hue windows in PIL's 0-255 space. Pink is kept away from the 0-20 red-brown

@@ -34,7 +34,7 @@ from xml.dom import minidom
 
 # Dataset lives outside the repo tree in git terms (see .gitignore), one level up
 # from this scripts directory.
-DATASET = Path(__file__).resolve().parent.parent / "chinee-apple-dataset" / "matured-dry-30m"
+DATASET = Path(__file__).resolve().parent.parent / "datasets" / "matured-dry-30m"
 
 BATCH_RE = re.compile(r"^batch_\d+$")
 

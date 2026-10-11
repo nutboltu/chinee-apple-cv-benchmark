@@ -28,12 +28,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+# metrics/ is a shared package at the repo root, two levels up from this file.
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 import numpy as np
 from PIL import Image
 
-import probe_eval as pe
+from metrics import segmentation as pe
 import train_probe as tp
 
 

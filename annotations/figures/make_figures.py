@@ -2,8 +2,8 @@ import csv, collections
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 Image.MAX_IMAGE_PIXELS=None
-D=Path('/Users/farhadyasir/Workspace/phd-research/chinee-apple-cv-benchmark/chinee-apple-dataset/matured-dry-30m')
-OUT=Path('/Users/farhadyasir/Workspace/phd-research/chinee-apple-cv-benchmark/annotation/figures')
+D=Path('/Users/farhadyasir/Workspace/phd-research/chinee-apple-cv-benchmark/datasets/matured-dry-30m')
+OUT=Path('/Users/farhadyasir/Workspace/phd-research/chinee-apple-cv-benchmark/annotations/figures')
 
 def font(sz):
     for p in ["/System/Library/Fonts/Supplemental/Arial Bold.ttf","/System/Library/Fonts/Helvetica.ttc"]:

@@ -1,6 +1,6 @@
 """Run a trained probe on new imagery: image in, chinee apple mask out.
 
-This is inference. Training lives in train_probe.py, metrics in probe_eval.py.
+This is inference. Training lives in train_probe.py, metrics in metrics/segmentation.py.
 
     image -> frozen DINO ViT -> patch tokens -> probe -> p(weed) per patch
           -> threshold + close -> mask -> connected components -> plants
@@ -33,7 +33,13 @@ from __future__ import annotations
 import argparse
 import csv
 import glob
+import sys
 from pathlib import Path
+
+# metrics/ is a shared package at the repo root, two levels up from this file.
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 import numpy as np
 from PIL import Image
@@ -170,7 +176,7 @@ def main() -> int:
     # ---- optional scoring, only possible where ground truth exists ---------- #
     if args.annotations:
         import train_probe as tp
-        import probe_eval as pe
+        from metrics import segmentation as pe
         polys = tp.read_cvat_zips(args.annotations)
         have = [s for s in scored if s["name"] in polys]
         if not have:
