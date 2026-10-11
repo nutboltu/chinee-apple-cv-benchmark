@@ -1,7 +1,8 @@
 # chinee-apple-cv-benchmark
 
-[![Open dinov3-colab in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/pipelines/dinov3-colab/dinov3_colab.ipynb)
-[![Open dinov3-vit in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/pipelines/dinov3-vit/dinov3_vit_colab.ipynb)
+[![kmeans-clusters](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/pipelines/kmeans-clusters/kmeans_colab.ipynb)
+[![supervised-probe](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/pipelines/supervised-probe/probe_colab.ipynb)
+
 
 PhD research repository for evaluating computer-vision models on detecting
 **Chinee apple** (*Ziziphus mauritiana*) — a Weed of National Significance in
@@ -15,8 +16,9 @@ runtime, and the scripts used to evaluate it on Chinee apple imagery.
 
 | Directory | Model | Task | Status |
 | --- | --- | --- | --- |
-| [`pipelines/dinov3-colab/`](./pipelines/dinov3-colab) | DINOv3 (ViT-B/16) | Two paths in `dinov3_colab.ipynb`: (1) unsupervised foreground localization via [CLS]-token similarity over patch tokens, and (2) a **supervised linear probe** on the frozen backbone — train a logistic-regression head on labeled crops to classify Chinee apple vs other trees, then apply it per-patch for class-aware detection heatmaps. Also runs by SSHing into a Colab VM (`colab_ssh_bootstrap.ipynb` + `dinov3_detect.py`). | Probe |
-| [`pipelines/dinov3-vit/`](./pipelines/dinov3-vit) | DINOv3 (ViT-B/16), DINOv2 fallback | **Frozen-backbone probe.** Stage 1 is annotation-free KMeans over patch tokens (`vit_features.py`). Stage 2 is a supervised logistic-regression head trained on the CVAT + SAM3 polygons (`train_probe.py`), run on new imagery with `predict.py`, and compared across heads and resolutions with `compare.py`. End to end in `dinov3_probe_colab.ipynb`. | Probe trained |
+| [`pipelines/kmeans-clusters/`](./pipelines/kmeans-clusters) | DINOv3 / DINOv2 ViT | **Annotation-free.** KMeans over frozen patch tokens, then a human picks which cluster is the weed, once per run. Needs no labels, but needs a person every time. | Stage 1 |
+| [`pipelines/supervised-probe/`](./pipelines/supervised-probe) | DINOv3 / DINOv2 ViT | **Supervised.** Logistic-regression head on frozen tokens, trained on the CVAT and SAM3 polygons. Trains once, then runs unattended. Patch AP 0.77, instance mAP 0.15 on held-out frames. | Trained |
+| [`pipelines/dinov3-colab/`](./pipelines/dinov3-colab) | DINOv3 ViT-L/16, CAFe-DINO | **Mixed exploration.** CLS-token saliency with a Gradio UI, an early crop-based probe, and CAFe-DINO open-vocabulary detection prompted with text. Superseded in part by supervised-probe. | Exploratory |
 | [`triage/`](./triage) | — (Pillow only) | **Pre-annotation triage.** Narrows thousands of UAV frames to the ones actually containing chinee apple, before anything reaches CVAT. EXIF/GPS manifest → GPS dedup (~84% frame overlap, so ~2/3 are redundant) → one threaded proxy pass → bulk keep/skip in an HTML page or contact sheets → list of originals to annotate. | Tool |
 | [`annotations/`](./annotations) | — | **Dataset preparation.** Tiles 8192x5460 stills into 1024x1024, detects the cardboard ground-truth markers, keeps only tiles containing one, batches them for CVAT, and filters the finished exports down to annotated frames. | Tool |
 | [`metrics/`](./metrics) | — | **Shared metrics.** Backbone-agnostic patch, mask and instance scoring (AP, IoU, Dice, COCO mAP) so every pipeline reports comparable numbers. | Shared |
@@ -34,10 +36,12 @@ chinee-apple-cv-benchmark/
 │   └── matured-dry-30m/
 │       ├── raw/         ← source stills
 │       └── processed/   ← tiles, batches, CVAT exports
+├── backbones/           ← shared DINO loading + patch tokens
 ├── metrics/             ← shared scoring, used by every pipeline
 ├── pipelines/           ← one folder per model/approach
-│   ├── dinov3-colab/
-│   └── dinov3-vit/
+│   ├── kmeans-clusters/   annotation-free, pick a cluster
+│   ├── supervised-probe/  trained on CVAT + SAM3 polygons
+│   └── dinov3-colab/      exploratory, incl. CAFe-DINO
 └── triage/              ← pre-annotation frame triage
 ```
 
@@ -50,8 +54,8 @@ scripts at wherever you keep `datasets/`.
 2. Include a short README covering the model, the dataset split, how to run
    it, and what it produces.
 3. Pin dependencies in a local `requirements.txt` so runs stay reproducible.
-4. Score with `metrics/` rather than rolling your own, so results stay
-   comparable across pipelines.
+4. Take features from `backbones/` and score with `metrics/` rather than
+   rolling your own, so results stay comparable across pipelines.
 5. Add a row to the table above.
 
 ## Target weed

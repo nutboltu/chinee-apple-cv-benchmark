@@ -1,17 +1,21 @@
-# DINOv3 ViT — unsupervised chinee apple localization
+# kmeans-clusters — annotation-free localization by clustering
 
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/dinov3-vit/dinov3_vit_colab.ipynb)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/pipelines/kmeans-clusters/kmeans_colab.ipynb)
 
 Stage 1 of a **"model first, labels later"** pipeline for detecting
 **Chinee apple** (*Ziziphus mauritiana*) in UAV imagery — with **no manual
 annotation**. We run a frozen DINOv3 ViT-B/16 backbone, cluster its per-patch
 features, and let you assign *one integer* ("cluster 3 is the weed") after
-looking at the result. Those cluster ids become the pseudo-labels for a linear
-probe in stage 2.
+looking at the result. Those cluster ids can also seed a probe, though the
+[`../supervised-probe`](../supervised-probe) pipeline now trains on real CVAT
+and SAM3 polygons instead, which is strictly better where labels exist.
 
-This is a fresh, minimal, self-contained experiment — distinct from
-[`../dinov3-colab/`](../dinov3-colab), which mixes `[CLS]`-saliency, a supervised
-probe, and CAFe-DINO in one large notebook.
+**Use this when you have no labels.** It needs none, but it needs a human to
+pick the right cluster on every run, which does not scale. Once labels exist,
+[`../supervised-probe`](../supervised-probe) runs unattended.
+
+Features come from the shared [`backbones`](../../backbones) package, so both
+pipelines sit on identical tokens and their results are comparable.
 
 ## Why this answers "how do we label without annotating?"
 
@@ -43,15 +47,15 @@ flow on a tile you upload.
 pip install -r requirements.txt
 
 # DINOv2 fallback — ungated, works today, same code path:
-python vit_features.py --image tile.jpg --out out/ --family dinov2 -k 12
+python clustering.py --image tile.jpg --out out/ --family dinov2 -k 12
 #   → writes tile_clusters.png; open it, find the weed's cluster id, then:
-python vit_features.py --image tile.jpg --out out/ --family dinov2 -k 12 \
+python clustering.py --image tile.jpg --out out/ --family dinov2 -k 12 \
        --target-cluster 3
 
 # DINOv3 ViT-B/16 — gated: accept Meta's license, clone the repo, download weights
 #   https://ai.meta.com/resources/models-and-libraries/dinov3-downloads/
 git clone https://github.com/facebookresearch/dinov3.git
-python vit_features.py --image tile.jpg --out out/ \
+python clustering.py --image tile.jpg --out out/ \
        --repo ./dinov3 --weights ./dinov3_vitb16_pretrain_lvd1689m.pth \
        -k 12 --target-cluster 3
 ```
@@ -95,6 +99,6 @@ trains a probe on the frozen features — no hand-drawn crops:
 
 | File | Purpose |
 |---|---|
-| `dinov3_vit_colab.ipynb` | Self-contained Colab walkthrough (cluster → pick → mask → probe). |
-| `vit_features.py` | Importable API + CLI mirror of the notebook. |
+| `kmeans_colab.ipynb` | Self-contained Colab walkthrough (cluster → pick → mask → probe). |
+| `clustering.py` | Importable API + CLI mirror of the notebook. |
 | `requirements.txt` | Pinned-light deps. |

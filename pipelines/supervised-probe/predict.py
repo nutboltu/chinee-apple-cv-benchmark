@@ -1,6 +1,6 @@
 """Run a trained probe on new imagery: image in, chinee apple mask out.
 
-This is inference. Training lives in train_probe.py, metrics in metrics/segmentation.py.
+This is inference. Training lives in train_probe.py, metrics in the shared metrics package.
 
     image -> frozen DINO ViT -> patch tokens -> probe -> p(weed) per patch
           -> threshold + close -> mask -> connected components -> plants
@@ -109,7 +109,7 @@ def main() -> int:
         raise SystemExit(f"no images matched {args.image}")
     print(f"images to score   {len(images)}")
 
-    import vit_features as vf
+    from backbones import dino as vf
     model, meta = vf.load_backbone(family=family, repo=args.repo, weights=args.weights)
     if meta["patch"] != patch:
         raise SystemExit(f"patch size mismatch, probe {patch} vs backbone {meta['patch']}. "

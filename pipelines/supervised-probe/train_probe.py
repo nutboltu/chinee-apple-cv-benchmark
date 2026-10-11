@@ -3,8 +3,8 @@
 Takes the CVAT "CVAT for images 1.1" polygon annotations produced in CVAT with
 SAM3, turns them into per-patch labels over the frozen backbone's token grid,
 and fits a logistic-regression head. This is the supervised counterpart to the
-KMeans pseudo-labels in vit_features.py, and reuses its backbone loading and
-patch_features() unchanged, so the probe sits on exactly the same features.
+KMeans pseudo-labels in the kmeans-clusters pipeline, and reuses the shared
+backbone unchanged, so the probe sits on exactly the same features.
 
     tile + polygons -> mask -> patch-grid coverage -> {pos, neg, ignore}
     frozen ViT patch tokens (N, D) -> L2 norm -> logistic regression -> p(weed)
@@ -44,7 +44,13 @@ import csv
 import glob
 import json
 import zipfile
+import sys
 from pathlib import Path
+
+# backbones/ and metrics/ are shared packages at the repo root, two levels up.
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 from xml.etree import ElementTree as ET
 
 import numpy as np
@@ -190,7 +196,7 @@ def main() -> int:
         return 0
 
     # ---- features ---------------------------------------------------------- #
-    import vit_features as vf  # noqa: E402  (deferred, needs torch)
+    from backbones import dino as vf  # noqa: E402  (deferred, needs torch)
 
     model, meta = vf.load_backbone(family=args.family, repo=args.repo, weights=args.weights)
     X, Y, G = [], [], []

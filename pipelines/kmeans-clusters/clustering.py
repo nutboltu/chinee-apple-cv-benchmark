@@ -1,135 +1,39 @@
-"""DINOv3 ViT feature extraction + unsupervised (annotation-free) weed localization.
+"""Annotation-free localization by clustering DINO patch tokens.
 
-Stage 1 of the "model first, labels later" plan for chinee apple
-(*Ziziphus mauritiana*) in UAV imagery:
+Stage 1 of the "model first, labels later" plan. No boxes are ever drawn by
+hand. The only human input is a single integer, "cluster 3 is the weed",
+chosen after looking at the cluster overlay.
 
-    UAV tile -> DINOv3 ViT-B/16 patch tokens -> L2-normalize
+    UAV tile -> DINO patch tokens -> L2-normalize
              -> KMeans over patches -> cluster map
-             -> you pick "which cluster is chinee apple" ONCE, by eye
-             -> binary mask + soft heatmap (cos-sim to cluster centroid) + boxes
+             -> you pick which cluster is chinee apple ONCE, by eye
+             -> binary mask + soft heatmap + boxes
 
-No bounding boxes are ever drawn by hand. The only human input is a single
-integer ("cluster 3 is the weed"), chosen after looking at the cluster overlay.
-Those cluster assignments are exactly the pseudo-labels you feed a linear probe
-in stage 2 (see README roadmap) -- this module deliberately returns the
-per-patch features and cluster ids so that step is a straight hand-off.
-
-Backbone loading is family-agnostic:
-    * DINOv3 (gated): clone https://github.com/facebookresearch/dinov3, accept
-      Meta's license, download ViT-B/16 weights, pass --repo and --weights.
-    * DINOv2 (ungated fallback): loads straight from torch.hub, lets you build
-      and test the whole pipeline before the DINOv3 license clears. Same
-      forward_features dict, so nothing downstream changes.
+Features come from the shared backbones package, so this pipeline and the
+supervised probe sit on identical tokens.
 
 CLI:
-    python vit_features.py --image tile.jpg --out out/ \
+    python clustering.py --image tile.jpg --out out/ --family dinov2
+    python clustering.py --image tile.jpg --out out/ \
         --repo /path/to/dinov3 --weights /path/dinov3_vitb16_*.pth
-    # or, no gated weights yet:
-    python vit_features.py --image tile.jpg --out out/ --family dinov2
-
-Importable API:
-    model, meta = load_backbone(family="dinov2")
-    feats, grid = patch_features(model, "tile.jpg", meta)   # (N, D), (gh, gw)
-    labels, centroids = cluster_patches(feats, k=12)
-    result = localize(feats, labels, centroids, target_cluster=3, grid=grid, ...)
 """
+
+from __future__ import annotations
 
 import argparse
 import os
+import sys
+from pathlib import Path
 
 import numpy as np
-import torch
 from PIL import Image, ImageDraw
-from torchvision import transforms
 
-IMAGENET_MEAN = (0.485, 0.456, 0.406)
-IMAGENET_STD = (0.229, 0.224, 0.225)
+# backbones/ is a shared package at the repo root, two levels up.
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+from backbones import load_backbone, patch_features, pick_device  # noqa: E402
 
-# Per-family patch size and a default hub entrypoint. IMG_SIZE is snapped to a
-# multiple of the patch size at preprocessing time.
-FAMILY_DEFAULTS = {
-    "dinov3": {"patch": 16, "arch": "dinov3_vitb16", "hub": None},
-    "dinov2": {"patch": 14, "arch": "dinov2_vitb14", "hub": "facebookresearch/dinov2"},
-}
-
-
-# --------------------------------------------------------------------------- #
-# Device + backbone
-# --------------------------------------------------------------------------- #
-def pick_device() -> str:
-    if torch.cuda.is_available():
-        return "cuda"
-    if torch.backends.mps.is_available():
-        return "mps"
-    return "cpu"
-
-
-def load_backbone(family: str = "dinov3", repo: str | None = None,
-                  weights: str | None = None, arch: str | None = None,
-                  device: str | None = None):
-    """Load a DINO ViT backbone and return (model, meta).
-
-    meta carries the patch size and device so the rest of the pipeline stays
-    family-agnostic.
-    """
-    if family not in FAMILY_DEFAULTS:
-        raise ValueError(f"family must be one of {list(FAMILY_DEFAULTS)}")
-    cfg = FAMILY_DEFAULTS[family]
-    arch = arch or cfg["arch"]
-    device = device or pick_device()
-
-    if family == "dinov3":
-        if not repo or not weights:
-            raise ValueError(
-                "DINOv3 is gated: pass --repo (local clone of facebookresearch/"
-                "dinov3) and --weights (the .pth you downloaded after accepting "
-                "Meta's license). To build without them today, use --family dinov2."
-            )
-        model = torch.hub.load(repo, arch, source="local", weights=weights)
-    else:  # dinov2, ungated
-        model = torch.hub.load(cfg["hub"], arch)
-
-    model = model.to(device).eval()
-    meta = {"family": family, "patch": cfg["patch"], "device": device, "arch": arch}
-    return model, meta
-
-
-# --------------------------------------------------------------------------- #
-# Preprocessing + feature extraction
-# --------------------------------------------------------------------------- #
-def _snap(size: int, patch: int) -> int:
-    """Round a target side length down to a whole number of patches (>= 1 patch)."""
-    return max(patch, (size // patch) * patch)
-
-
-def preprocess(image: Image.Image, patch: int, img_size: int = 768):
-    """Resize to a multiple of `patch`, normalize. Returns (tensor, (gh, gw))."""
-    side = _snap(img_size, patch)
-    tx = transforms.Compose([
-        transforms.Resize((side, side)),
-        transforms.ToTensor(),
-        transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
-    ])
-    x = tx(image.convert("RGB")).unsqueeze(0)
-    grid = side // patch
-    return x, (grid, grid)
-
-
-@torch.inference_mode()
-def patch_features(model, image, meta, img_size: int = 768, l2: bool = True):
-    """Extract per-patch feature vectors from one image.
-
-    image: PIL.Image or path. Returns (feats [N, D] float32 numpy, (gh, gw)).
-    """
-    if isinstance(image, (str, os.PathLike)):
-        image = Image.open(image)
-    x, grid = preprocess(image, meta["patch"], img_size)
-    x = x.to(meta["device"])
-    out = model.forward_features(x)
-    patches = out["x_norm_patchtokens"][0]            # (N, D)
-    if l2:
-        patches = torch.nn.functional.normalize(patches, p=2, dim=-1)
-    return patches.float().cpu().numpy(), grid
 
 
 # --------------------------------------------------------------------------- #

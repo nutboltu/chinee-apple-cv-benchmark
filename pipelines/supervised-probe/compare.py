@@ -65,7 +65,7 @@ def extract(names, tiles, polys, crib, model, meta, img_size):
     """One pass of the frozen backbone. Returns per-tile records."""
     recs = []
     for i, n in enumerate(names, 1):
-        import vit_features as vf
+        from backbones import dino as vf
         f, (gh, gw) = vf.patch_features(model, str(tiles[n]), meta, img_size=img_size)
         f = np.asarray(f, dtype=np.float32)
         f /= (np.linalg.norm(f, axis=1, keepdims=True) + 1e-8)
@@ -102,7 +102,7 @@ def main() -> int:
     args = ap.parse_args()
 
     from sklearn.model_selection import GroupShuffleSplit
-    import vit_features as vf
+    from backbones import dino as vf
 
     polys = tp.read_cvat_zips(args.zips)
     tiles = tp.index_tiles(args.tiles)
