@@ -5,3 +5,7 @@ pillow
 scikit-learn
 scipy
 matplotlib
+torchmetrics
+termcolor
+omegaconf
+ftfy

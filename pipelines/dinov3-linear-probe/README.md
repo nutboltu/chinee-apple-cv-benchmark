@@ -49,9 +49,15 @@ repo and point at your weights, since loading needs both the code and the
 checkpoint.
 
 ```bash
+pip install torchmetrics termcolor omegaconf ftfy
 git clone https://github.com/facebookresearch/dinov3.git /content/dinov3
 ... --family dinov3 --repo /content/dinov3 --weights /path/dinov3_vitb16_pretrain_lvd1689m.pth
 ```
+
+Those four packages are not optional. Meta's `hubconf.py` imports their
+segmentation and dinotxt heads, so loading even a plain ViT-B/16 backbone pulls
+in `torchmetrics` and `termcolor`, and fails with `ModuleNotFoundError` without
+them.
 
 The notebook defaults to DINOv3 and clones the repo for you.
 
