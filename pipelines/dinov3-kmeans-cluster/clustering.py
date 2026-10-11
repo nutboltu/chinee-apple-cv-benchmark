@@ -87,8 +87,12 @@ def boxes_from_mask(mask: np.ndarray, min_area: int = 64):
 
     lbl, n = label(mask)
     boxes = []
-    for i in range(1, n + 1):
-        sl = find_objects(lbl == i)[0]
+    # find_objects wants the integer label array, not a boolean mask. Passing
+    # `lbl == i` raised TypeError on scipy >= 1.15, and rescanned the whole
+    # array once per component. One call returns every bounding slice.
+    for i, sl in enumerate(find_objects(lbl), start=1):
+        if sl is None:
+            continue
         area = int((lbl[sl] == i).sum())
         if area < min_area:
             continue
