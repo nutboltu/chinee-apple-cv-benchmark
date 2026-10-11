@@ -61,6 +61,15 @@ them.
 
 The notebook defaults to DINOv3 and clones the repo for you.
 
+## Where results go
+
+Locally, wherever `--out` points. In the notebook, predictions are written to
+`/content` first and then copied to Drive in one step, under
+`MyDrive/chinee-apple/predictions/<date>_<backbone>_<resolution>/`, with a zip
+of the same run beside it. Writing hundreds of small files straight to a
+mounted Drive is slow, and a timestamped folder means runs never overwrite each
+other and stay identifiable months later.
+
 ## Measured baseline
 
 This is the **DINOv2 fallback**, so it is the number DINOv3 should beat.
