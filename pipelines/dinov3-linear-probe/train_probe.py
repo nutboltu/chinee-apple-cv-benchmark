@@ -251,10 +251,36 @@ def main() -> int:
     import joblib
     joblib.dump({"clf": final, "family": args.family, "img_size": args.img_size,
                  "patch": meta["patch"], "l2_normalized": True}, args.out / "probe.joblib")
-    (args.out / "metrics.json").write_text(json.dumps(
-        {"folds": rows, "mean": mean, "std": std, "n_patches": int(len(Y)),
-         "positive_rate": float(Y.mean()), "n_frames": len(set(G)),
-         "tiles": len(usable)}, indent=2))
+    # Provenance matters as much as the numbers. A results page that cannot say
+    # which backbone, which resolution and which commit produced a figure is
+    # not reproducible, so the config travels with the metrics.
+    import datetime, subprocess
+    try:
+        commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True,
+                                text=True, cwd=Path(__file__).parent).stdout.strip() or None
+    except Exception:
+        commit = None
+    (args.out / "metrics.json").write_text(json.dumps({
+        "pipeline": "dinov3-linear-probe",
+        "config": {
+            "backbone": args.family,
+            "arch": meta.get("arch"),
+            "img_size": args.img_size,
+            "patch": meta["patch"],
+            "grid": f"{args.img_size // meta['patch']}x{args.img_size // meta['patch']}",
+            "head": "LogisticRegression(C=1.0, class_weight=balanced)",
+            "pos_thresh": args.pos_thresh,
+            "neg_thresh": args.neg_thresh,
+            "markers_masked": not args.keep_markers,
+            "split": f"GroupKFold({folds}) over source frames",
+        },
+        "data": {
+            "tiles": len(usable), "frames": len(set(G)),
+            "patches": int(len(Y)), "positive_rate": round(float(Y.mean()), 4),
+        },
+        "folds": rows, "mean": mean, "std": std,
+        "run": {"date": datetime.date.today().isoformat(), "commit": commit},
+    }, indent=2))
     print(f"\nwrote {args.out/'probe.joblib'} and {args.out/'metrics.json'}")
     return 0
 
