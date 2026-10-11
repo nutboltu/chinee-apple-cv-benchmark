@@ -44,11 +44,20 @@ python predict.py --probe probe_out/probe.joblib --image my_tile.jpg --out preds
 python compare.py --zips "$P/batch_*.zip" --tiles $P --img-sizes 448 768
 ```
 
-Add `--family dinov3 --repo /path/dinov3 --weights /path/w.pth` for the gated
-backbone. The default is the ungated DINOv2 fallback.
+The scripts default to the ungated DINOv2 fallback. For DINOv3, clone Meta's
+repo and point at your weights, since loading needs both the code and the
+checkpoint.
+
+```bash
+git clone https://github.com/facebookresearch/dinov3.git /content/dinov3
+... --family dinov3 --repo /content/dinov3 --weights /path/dinov3_vitb16_pretrain_lvd1689m.pth
+```
+
+The notebook defaults to DINOv3 and clones the repo for you.
 
 ## Measured baseline
 
+This is the **DINOv2 fallback**, so it is the number DINOv3 should beat.
 DINOv2 ViT-B/14 at 448px, 180 annotated tiles over 56 frames, 17 frames held
 out, split grouped by source frame.
 
