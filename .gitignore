@@ -13,3 +13,4 @@ chinee-apple-dataset/
 
 # Trained probe artefacts
 probe_out/
+compare_out/
