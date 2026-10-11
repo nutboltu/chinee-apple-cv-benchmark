@@ -1,4 +1,4 @@
-# supervised-probe — logistic regression head on frozen DINO tokens
+# dinov3-linear-probe — logistic regression head on frozen DINO tokens
 
 Supervised localization of chinee apple, trained on the CVAT and SAM3 polygon
 annotations. The backbone is frozen and never fine-tuned. The only thing
@@ -9,7 +9,7 @@ tile + polygons -> mask -> patch-grid coverage -> {positive, negative, ignore}
 frozen ViT patch tokens -> L2 norm -> logistic regression -> p(weed)
 ```
 
-Contrast with [`../kmeans-clusters`](../kmeans-clusters), which needs no labels
+Contrast with [`../dinov3-kmeans-cluster`](../dinov3-kmeans-cluster), which needs no labels
 but requires a human to pick the right cluster every time. This pipeline needs
 labels once and then runs unattended.
 

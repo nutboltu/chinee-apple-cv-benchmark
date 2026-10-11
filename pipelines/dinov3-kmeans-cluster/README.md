@@ -1,18 +1,18 @@
-# kmeans-clusters — annotation-free localization by clustering
+# dinov3-kmeans-cluster — annotation-free localization by clustering
 
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/pipelines/kmeans-clusters/kmeans_colab.ipynb)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/pipelines/dinov3-kmeans-cluster/kmeans_colab.ipynb)
 
 Stage 1 of a **"model first, labels later"** pipeline for detecting
 **Chinee apple** (*Ziziphus mauritiana*) in UAV imagery — with **no manual
 annotation**. We run a frozen DINOv3 ViT-B/16 backbone, cluster its per-patch
 features, and let you assign *one integer* ("cluster 3 is the weed") after
 looking at the result. Those cluster ids can also seed a probe, though the
-[`../supervised-probe`](../supervised-probe) pipeline now trains on real CVAT
+[`../dinov3-linear-probe`](../dinov3-linear-probe) pipeline now trains on real CVAT
 and SAM3 polygons instead, which is strictly better where labels exist.
 
 **Use this when you have no labels.** It needs none, but it needs a human to
 pick the right cluster on every run, which does not scale. Once labels exist,
-[`../supervised-probe`](../supervised-probe) runs unattended.
+[`../dinov3-linear-probe`](../dinov3-linear-probe) runs unattended.
 
 Features come from the shared [`backbones`](../../backbones) package, so both
 pipelines sit on identical tokens and their results are comparable.
@@ -91,7 +91,7 @@ trains a probe on the frozen features — no hand-drawn crops:
    centroid to that reference — this handles per-tile KMeans ids being
    arbitrary and not comparable across tiles.
 3. Pool `(feats, binary label)` and fit a logistic-regression head on the
-   frozen tokens (same head as `dinov3-colab`).
+   frozen tokens (same head as `dinov3-cafe`).
 4. Apply the probe per patch on new tiles for class-aware heatmaps + boxes — no
    re-clustering, and it generalizes across tiles where raw KMeans ids would not.
 

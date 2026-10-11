@@ -1,7 +1,7 @@
 # chinee-apple-cv-benchmark
 
-[![kmeans-clusters](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/pipelines/kmeans-clusters/kmeans_colab.ipynb)
-[![supervised-probe](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/pipelines/supervised-probe/probe_colab.ipynb)
+[![dinov3-kmeans-cluster](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/pipelines/dinov3-kmeans-cluster/kmeans_colab.ipynb)
+[![dinov3-linear-probe](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/pipelines/dinov3-linear-probe/probe_colab.ipynb)
 
 
 PhD research repository for evaluating computer-vision models on detecting
@@ -16,9 +16,9 @@ runtime, and the scripts used to evaluate it on Chinee apple imagery.
 
 | Directory | Model | Task | Status |
 | --- | --- | --- | --- |
-| [`pipelines/kmeans-clusters/`](./pipelines/kmeans-clusters) | DINOv3 / DINOv2 ViT | **Annotation-free.** KMeans over frozen patch tokens, then a human picks which cluster is the weed, once per run. Needs no labels, but needs a person every time. | Stage 1 |
-| [`pipelines/supervised-probe/`](./pipelines/supervised-probe) | DINOv3 / DINOv2 ViT | **Supervised.** Logistic-regression head on frozen tokens, trained on the CVAT and SAM3 polygons. Trains once, then runs unattended. Patch AP 0.77, instance mAP 0.15 on held-out frames. | Trained |
-| [`pipelines/dinov3-colab/`](./pipelines/dinov3-colab) | DINOv3 ViT-L/16, CAFe-DINO | **Mixed exploration.** CLS-token saliency with a Gradio UI, an early crop-based probe, and CAFe-DINO open-vocabulary detection prompted with text. Superseded in part by supervised-probe. | Exploratory |
+| [`pipelines/dinov3-kmeans-cluster/`](./pipelines/dinov3-kmeans-cluster) | DINOv3 / DINOv2 ViT | **Annotation-free.** KMeans over frozen patch tokens, then a human picks which cluster is the weed, once per run. Needs no labels, but needs a person every time. | Stage 1 |
+| [`pipelines/dinov3-linear-probe/`](./pipelines/dinov3-linear-probe) | DINOv3 / DINOv2 ViT | **Supervised.** Logistic-regression head on frozen tokens, trained on the CVAT and SAM3 polygons. Trains once, then runs unattended. Patch AP 0.77, instance mAP 0.15 on held-out frames. | Trained |
+| [`pipelines/dinov3-cafe/`](./pipelines/dinov3-cafe) | DINOv3.txt ViT-L/16 + CAFe-DINO | **Open-vocabulary, no training.** Text prompts such as "chinee apple" against cost-aggregated DINOv3 text-image similarity, giving full-resolution masks. Add a class by changing the prompt, not by retraining. The notebook also carries an older CLS-saliency demo and a crop-based probe, both superseded by dinov3-linear-probe. | Exploratory |
 | [`triage/`](./triage) | — (Pillow only) | **Pre-annotation triage.** Narrows thousands of UAV frames to the ones actually containing chinee apple, before anything reaches CVAT. EXIF/GPS manifest → GPS dedup (~84% frame overlap, so ~2/3 are redundant) → one threaded proxy pass → bulk keep/skip in an HTML page or contact sheets → list of originals to annotate. | Tool |
 | [`annotations/`](./annotations) | — | **Dataset preparation.** Tiles 8192x5460 stills into 1024x1024, detects the cardboard ground-truth markers, keeps only tiles containing one, batches them for CVAT, and filters the finished exports down to annotated frames. | Tool |
 | [`metrics/`](./metrics) | — | **Shared metrics.** Backbone-agnostic patch, mask and instance scoring (AP, IoU, Dice, COCO mAP) so every pipeline reports comparable numbers. | Shared |
@@ -39,9 +39,11 @@ chinee-apple-cv-benchmark/
 ├── backbones/           ← shared DINO loading + patch tokens
 ├── metrics/             ← shared scoring, used by every pipeline
 ├── pipelines/           ← one folder per model/approach
-│   ├── kmeans-clusters/   annotation-free, pick a cluster
-│   ├── supervised-probe/  trained on CVAT + SAM3 polygons
-│   └── dinov3-colab/      exploratory, incl. CAFe-DINO
+│   ├── dinov3-kmeans-cluster/  annotation-free, pick a cluster
+│   ├── dinov3-linear-probe/    trained on CVAT + SAM3 polygons
+│   └── dinov3-cafe/            open-vocabulary, prompted with text
+├── tools/               ← not pipelines
+│   └── colab-ssh/         SSH into a Colab VM
 └── triage/              ← pre-annotation frame triage
 ```
 

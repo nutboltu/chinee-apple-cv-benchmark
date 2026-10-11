@@ -103,7 +103,7 @@ the output of `dedup` feeds straight into `thumbs`.
 ## Scaling further
 
 Once a few hundred frames are triaged by hand, that keep/skip split is a
-labelled set — train the [`dinov3-vit`](../dinov3-vit) linear probe on the
+labelled set — train the [`dinov3-linear-probe`](../dinov3-linear-probe) linear probe on the
 proxies and let it rank the remaining frames by weed likelihood, so you review
 in descending order and stop when the hits dry up. The proxies are already the
 right input size for a ViT, so no extra preprocessing is needed.

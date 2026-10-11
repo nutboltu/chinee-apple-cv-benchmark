@@ -3,7 +3,7 @@
 Takes the CVAT "CVAT for images 1.1" polygon annotations produced in CVAT with
 SAM3, turns them into per-patch labels over the frozen backbone's token grid,
 and fits a logistic-regression head. This is the supervised counterpart to the
-KMeans pseudo-labels in the kmeans-clusters pipeline, and reuses the shared
+KMeans pseudo-labels in the dinov3-kmeans-cluster pipeline, and reuses the shared
 backbone unchanged, so the probe sits on exactly the same features.
 
     tile + polygons -> mask -> patch-grid coverage -> {pos, neg, ignore}
