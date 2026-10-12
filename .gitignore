@@ -14,3 +14,6 @@ datasets/
 # Trained probe artefacts
 probe_out/
 compare_out/
+
+# Run outputs
+.results/
