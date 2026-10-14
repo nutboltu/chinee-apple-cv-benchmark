@@ -17,3 +17,9 @@ compare_out/
 
 # Run outputs
 .results/
+
+# yolo11-seg artefacts
+yolo_dataset/
+runs/
+eval_out/
+*.pt
