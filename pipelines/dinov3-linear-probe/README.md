@@ -34,14 +34,51 @@ reproduce that table on your own split.
 Scoring comes from the shared [`metrics`](../../metrics) package, and features
 from the shared [`backbones`](../../backbones) package.
 
+## Two seasons, two shape kinds
+
+The pipeline runs on either dataset. What differs is how CVAT exported the
+annotations, and it is not cosmetic.
+
+| | `matured-dry-30m` | `matured-wet-30m` |
+| --- | --- | --- |
+| CVAT exports | `batch_*.zip` | `wet_batch_*.zip` |
+| Shapes | 202 polygons | 400 masks, 9 polygons |
+| Annotated tiles | 180 of 620 | 260 of 300 |
+| Source frames | 56 | 41 |
+
+SAM3 produces a raster mask. CVAT writes it out as a `<mask>` element holding a
+run-length encoding unless the annotator converts it to a polygon first, which
+happened on the dry tasks and not on the wet ones. `read_cvat_zips` reads both
+kinds and `tile_mask` rasterises either, so a tile may freely hold a mix.
+
+This mattered more than it sounds. A reader that takes only `<polygon>` finds 9
+shapes in the wet export instead of 409, and nothing raises, because an export
+with no polygons is indistinguishable from a task nobody annotated. The
+`yolo11-seg` converter cannot consume masks at all, so it now refuses the wet
+export rather than quietly building a dataset from 2 percent of the labels.
+
 ## Run
 
 ```bash
-P=../../datasets/matured-dry-30m/processed
+# wet season
+P=../../datasets/matured-wet-30m/processed
+python train_probe.py --zips "$P/wet_batch_*.zip" --tiles $P --crib $P/tile_markers.csv
 
-python train_probe.py --zips "$P/batch_*.zip" --tiles $P --crib $P/tile_markers.csv
+# dry season
+P=../../datasets/matured-dry-30m/processed
+python train_probe.py --zips "$P/batch_*.zip" --tiles $P --crib $P/v1/tile_markers.csv
+
 python predict.py --probe probe_out/probe.joblib --image my_tile.jpg --out preds
 python compare.py --zips "$P/batch_*.zip" --tiles $P --img-sizes 448 768
+```
+
+Add `--dry-run` to either training command to report the label geometry without
+loading a backbone. It is the fastest way to confirm a new export was read
+properly, because it prints the shape counts.
+
+```
+annotated tiles in export : 260
+shapes                    : 409  (9 polygons, 400 masks)
 ```
 
 The scripts default to the ungated DINOv2 fallback. For DINOv3, clone Meta's
@@ -71,6 +108,10 @@ mounted Drive is slow, and a timestamped folder means runs never overwrite each
 other and stay identifiable months later.
 
 ## Measured baseline
+
+Dry season only. The wet season has not been run yet, and the dry numbers
+should not be assumed to carry over, because the wet annotation is denser and
+the target is green against brown grass rather than brown against brown.
 
 This is the **DINOv2 fallback**, so it is the number DINOv3 should beat.
 DINOv2 ViT-B/14 at 448px, 180 annotated tiles over 56 frames, 17 frames held

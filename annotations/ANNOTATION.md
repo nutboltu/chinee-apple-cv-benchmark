@@ -38,6 +38,57 @@ Regenerate with the following commands, run from `annotation/`.
 .venv/bin/python split_batches.py
 ```
 
+## The wet season set
+
+All three scripts take `--dataset`, which defaults to `matured-dry-30m` so the
+commands above are unchanged. Pass the wet set to run the same pipeline over it.
+
+```sh
+.venv/bin/python tile_images.py --dataset matured-wet-30m --fresh
+.venv/bin/python make_cvat_task.py --dataset matured-wet-30m
+.venv/bin/python split_batches.py --dataset matured-wet-30m
+```
+
+Two things switch automatically on the dataset name, and both are needed.
+
+**Marker detection gains three blob gates.** The dry test is per pixel, bright
+and desaturated, and that is enough against brown grass. On the wet set the pale
+silvery saltbush passes the same test and outnumbers the real boards about four
+to one. The gates run on whole blobs, where cardboard and foliage separate
+cleanly, and they are off by default so the dry behaviour is untouched. See the
+`detect_markers` docstring for the measured ranges.
+
+**Only pink arrows were sprayed.** The wet flight used no blue, so the blue hue
+window is switched off there. Left on, it would invent a blue class out of
+saltbush and board shadows.
+
+The wet stills were flown over the 2024 wet season, on 3 and 4 April 2024, over
+the same area as the dry season flights. Same sites, same 30 m altitude, same
+8192 x 5460 frames, so the two sets differ in season rather than in geography or
+capture setup. Which of the two dry season sites each wet flight covers is not
+recorded in the filenames.
+
+Measured over the wet set, 84 stills give 4032 tiles, of which 439 hold a board.
+367 distinct markers were detected across all 84 images.
+
+| arrow | markers | share |
+| --- | --- | --- |
+| blank, no arrow | 176 | 48.0% |
+| paint not detected | 154 | 42.0% |
+| pink | 37 | 10.1% |
+
+**The pink count is too low to use as a selection rule**, and the annotation did
+not use it. Arrows in this set are thin and weathered, so the paint test finds
+them on only 37 boards. Of the 260 annotated tiles, 135 hold a blank board only
+and 92 hold an unreadable one, which tracks the overall board population rather
+than the pink subset. The wet annotation is therefore not arrow led the way the
+dry annotation was.
+
+**CVAT exported the wet tasks as masks, not polygons.** 400 of the 409 shapes
+are `<mask>` elements carrying a run-length encoding, which is what SAM3
+produces when the mask is not converted on the way out. Any reader that looks
+only for `<polygon>` sees 9 shapes and no error. See the pipeline README.
+
 ## Workflow
 
 1. Create one CVAT task per batch folder, using `cvat_labels.json` as the label schema. The

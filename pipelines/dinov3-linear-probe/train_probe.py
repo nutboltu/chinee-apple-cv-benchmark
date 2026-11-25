@@ -60,10 +60,42 @@ Image.MAX_IMAGE_PIXELS = None
 
 
 # --------------------------------------------------------------------------- #
-# CVAT annotations -> per-tile polygon lists
+# CVAT annotations -> per-tile shape lists
 # --------------------------------------------------------------------------- #
-def read_cvat_zips(patterns: list[str]) -> dict[str, list[list[tuple[float, float]]]]:
-    """Map tile filename -> list of polygons, each a list of (x, y)."""
+# CVAT exports a SAM3 annotation as whichever shape the annotator saved, and the
+# two seasons came back differently. The dry tasks are <polygon> point lists. The
+# wet tasks are almost entirely <mask>, CVAT's run-length encoded raster shape,
+# which is what SAM3 produces natively when the mask is not converted on the way
+# out. Reading only polygons silently dropped 400 of the 409 wet shapes, which
+# looks exactly like an unannotated dataset rather than like a bug, so both kinds
+# are read here and a shape is one of:
+#
+#     polygon   list[(x, y)]                     as before, unchanged
+#     mask      {"type": "mask", "left", "top", "mask": bool array}
+#
+# tile_mask() rasterises either, so everything downstream is unaffected.
+def decode_cvat_rle(rle: str, width: int, height: int) -> np.ndarray:
+    """CVAT mask RLE -> bool array of shape (height, width).
+
+    The counts are row-major over the shape's own bounding box and alternate
+    starting with background, so the first number is a run of zeros. A trailing
+    background run is often omitted, hence the pad.
+    """
+    counts = [int(c) for c in rle.replace(" ", "").split(",") if c != ""]
+    flat = np.zeros(width * height, dtype=bool)
+    pos, value = 0, False
+    for c in counts:
+        if pos >= flat.size:
+            break
+        end = min(pos + c, flat.size)
+        if value:
+            flat[pos:end] = True
+        pos, value = end, not value
+    return flat.reshape(height, width)
+
+
+def read_cvat_zips(patterns: list[str]) -> dict[str, list]:
+    """Map tile filename -> list of shapes (polygons and/or masks)."""
     out: dict[str, list] = collections.defaultdict(list)
     files: list[str] = []
     for pat in patterns:
@@ -85,7 +117,22 @@ def read_cvat_zips(patterns: list[str]) -> dict[str, list[list[tuple[float, floa
             for poly in im.findall("polygon"):
                 pts = [tuple(map(float, xy.split(","))) for xy in poly.get("points").split(";")]
                 out[name].append(pts)
+            for msk in im.findall("mask"):
+                w, h = int(msk.get("width")), int(msk.get("height"))
+                out[name].append({
+                    "type": "mask",
+                    "left": int(msk.get("left", 0)),
+                    "top": int(msk.get("top", 0)),
+                    "mask": decode_cvat_rle(msk.get("rle", ""), w, h),
+                })
     return dict(out)
+
+
+def shape_counts(shapes_by_tile: dict[str, list]) -> dict[str, int]:
+    """How many of each shape kind came back, for reporting."""
+    n_poly = sum(1 for v in shapes_by_tile.values() for s in v if not isinstance(s, dict))
+    n_mask = sum(1 for v in shapes_by_tile.values() for s in v if isinstance(s, dict))
+    return {"polygons": n_poly, "masks": n_mask, "total": n_poly + n_mask}
 
 
 def read_marker_boxes(crib: Path) -> dict[str, list[tuple[int, int, int, int]]]:
@@ -110,16 +157,44 @@ def source_of(tile_name: str) -> str:
 # --------------------------------------------------------------------------- #
 # Masks -> patch-grid labels
 # --------------------------------------------------------------------------- #
-def tile_mask(size: tuple[int, int], polys, markers=None) -> np.ndarray:
-    """Binary mask at tile resolution, with marker boxes punched back out."""
+def tile_mask(size: tuple[int, int], shapes, markers=None) -> np.ndarray:
+    """Binary mask at tile resolution, with marker boxes punched back out.
+
+    `shapes` mixes polygon point lists and decoded CVAT masks freely, so one tile
+    can hold both kinds. Rasters are OR-ed in at their own offset, and clipped,
+    because a SAM3 mask can be saved a pixel or two over the tile edge.
+    """
     m = Image.new("L", size, 0)
     d = ImageDraw.Draw(m)
-    for pts in polys:
-        d.polygon(pts, fill=1)
+    rasters = []
+    for s in shapes:
+        if isinstance(s, dict):
+            rasters.append(s)
+        else:
+            d.polygon(s, fill=1)
+    a = np.asarray(m, dtype=np.uint8)
+    if rasters:
+        a = a.copy()
+        W, H = size
+        for s in rasters:
+            sub = s["mask"]
+            x0, y0 = s["left"], s["top"]
+            # clip on both sides, so a negative offset trims the raster instead
+            # of wrapping the slice around to the far edge of the tile
+            sx, sy = max(0, -x0), max(0, -y0)
+            x0, y0 = max(0, x0), max(0, y0)
+            x1 = min(x0 + sub.shape[1] - sx, W)
+            y1 = min(y0 + sub.shape[0] - sy, H)
+            if x1 <= x0 or y1 <= y0:
+                continue
+            a[y0:y1, x0:x1] |= sub[sy: sy + y1 - y0, sx: sx + x1 - x0]
+        m = Image.fromarray(a)
+        d = ImageDraw.Draw(m)
     if markers:
         for x0, y0, x1, y1 in markers:
             d.rectangle([x0, y0, x1, y1], fill=0)
-    return np.asarray(m, dtype=np.uint8)
+        a = np.asarray(m, dtype=np.uint8)
+    return a
 
 
 def patch_coverage(mask: np.ndarray, side: int, patch: int) -> np.ndarray:
@@ -166,7 +241,10 @@ def main() -> int:
     missing = [n for n in sorted(polys_by_tile) if n not in tiles]
     if args.limit:
         usable = usable[: args.limit]
+    shapes = shape_counts(polys_by_tile)
     print(f"annotated tiles in export : {len(polys_by_tile)}")
+    print(f"shapes                    : {shapes['total']}  "
+          f"({shapes['polygons']} polygons, {shapes['masks']} masks)")
     print(f"tile images found         : {len(usable)}")
     if missing:
         print(f"WARNING missing images    : {len(missing)} (e.g. {missing[:3]})")
@@ -276,6 +354,7 @@ def main() -> int:
         },
         "data": {
             "tiles": len(usable), "frames": len(set(G)),
+            "shapes": shapes,
             "patches": int(len(Y)), "positive_rate": round(float(Y.mean()), 4),
         },
         "folds": rows, "mean": mean, "std": std,

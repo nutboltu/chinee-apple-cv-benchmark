@@ -74,6 +74,7 @@ def read_cvat_zips(patterns: list[str]) -> tuple[dict[str, list], dict[str, tupl
     polys: dict[str, list] = collections.defaultdict(list)
     sizes: dict[str, tuple[int, int]] = {}
     seen: set[str] = set()
+    n_masks = 0
     files: list[str] = []
     for pat in patterns:
         files.extend(sorted(glob.glob(pat)))
@@ -101,6 +102,21 @@ def read_cvat_zips(patterns: list[str]) -> tuple[dict[str, list], dict[str, tupl
                        for xy in poly.get("points", "").split(";") if xy]
                 if len(pts) >= 3:
                     polys[name].append(pts)
+            n_masks += len(im.findall("mask"))
+
+    # YOLO segmentation labels are normalised polygons, so a CVAT <mask>, which
+    # is a run-length raster, would have to be contour traced before it could be
+    # written out. That is not implemented here. Refusing is the point: the wet
+    # season tasks came back almost entirely as masks, and silently keeping only
+    # the handful of polygons would produce a dataset that trains and scores
+    # fine while being built from 2% of the annotations.
+    if n_masks:
+        raise SystemExit(
+            f"these exports hold {n_masks} CVAT <mask> shapes, which this converter "
+            f"cannot turn into YOLO polygons ({sum(len(v) for v in polys.values())} "
+            "polygons were found).\nEither re-export the CVAT task choosing polygons "
+            "rather than masks, or use the dinov3-linear-probe pipeline, whose reader "
+            "rasterises both kinds.")
     return dict(polys), sizes, seen
 
 
