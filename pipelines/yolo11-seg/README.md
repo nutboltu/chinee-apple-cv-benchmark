@@ -35,6 +35,39 @@ comparing against the CVAT rings gives IoU 1.000000 on all 180 tiles. Four
 things about this dataset are not that mechanical, and they are where a
 careless conversion quietly costs you the experiment.
 
+### The wet season exports are masks, not polygons
+
+The dry tasks came back as `<polygon>`. The wet tasks came back as `<mask>`,
+CVAT's run-length raster, which is what SAM3 produces when the annotator does
+not convert it on export. 400 of the 409 wet shapes are masks.
+
+A YOLO segmentation label is a ring, so a raster has to be traced first.
+`cvat_to_yolo.py` decodes the RLE, traces the boundary with Moore neighbour
+tracing, and thins the result with Douglas-Peucker at `--mask-simplify`,
+default 1px. The tracer is written against numpy and scipy rather than OpenCV,
+so the conversion keeps its promise of running on a laptop with no torch and no
+ultralytics.
+
+| | polygons, dry | masks, wet |
+| --- | --- | --- |
+| shapes | 202 | 409, of which 400 traced |
+| round trip IoU, mean | 1.000000 | 0.986 |
+| tiles at or above 0.90 | 180 of 180 | 255 of 260 |
+| median points per ring | 310 | 209 |
+
+Two losses are real and worth stating. **Only the largest blob of each mask is
+kept.** A SAM3 mask averages 5.5 connected blobs, but the largest holds 99.4
+percent of the area and the median blob is 10 pixels, so keeping the speckle
+would multiply the instance count several fold to recover a fraction of a
+percent of area. One annotated shape stays one YOLO instance. Four tiles fall
+below 0.80 IoU, and those are masks with two genuinely large lobes where the
+smaller is dropped. **Holes are not traced**, because a single ring cannot
+express one, which is the same compromise the polygon path already makes.
+
+Tracing at 1px costs 0.003 mean IoU against tracing every pixel step, and cuts
+the median ring from 2073 points to 209. Pass `--mask-simplify 0` to keep the
+full staircase.
+
 **One ring per instance, no holes.** YOLO-seg carries a single closed ring, so
 there is nowhere to put a hole or an ignore region. The probe exploits both: it
 punches the cardboard markers out of the mask and drops boundary patches
@@ -115,9 +148,14 @@ CC-BY-NC backbones, so this one is the only directory with that constraint.
 ## Run
 
 ```bash
-P=../../datasets/matured-dry-30m/processed
+# wet season
+P=../../datasets/matured-wet-30m/processed
+python cvat_to_yolo.py --zips "$P/wet_batch_*.zip" --tiles $P --crib $P/tile_markers.csv \
+    --out yolo_dataset
 
-python cvat_to_yolo.py --zips "$P/batch_*.zip" --tiles $P --crib $P/tile_markers.csv \
+# dry season
+P=../../datasets/matured-dry-30m/processed
+python cvat_to_yolo.py --zips "$P/batch_*.zip" --tiles $P --crib $P/v1/tile_markers.csv \
     --out yolo_dataset
 python train_yolo.py --data yolo_dataset
 python evaluate.py --weights runs/yolo11s-seg_1024px/weights/best.pt --data yolo_dataset

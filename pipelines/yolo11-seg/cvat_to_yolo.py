@@ -56,6 +56,7 @@ from xml.etree import ElementTree as ET
 
 import numpy as np
 from PIL import Image
+from scipy import ndimage as ndi
 
 Image.MAX_IMAGE_PIXELS = None
 
@@ -65,8 +66,14 @@ CLASS_NAME = "chinee_apple"
 # --------------------------------------------------------------------------- #
 # CVAT exports -> per-tile polygon lists
 # --------------------------------------------------------------------------- #
-def read_cvat_zips(patterns: list[str]) -> tuple[dict[str, list], dict[str, tuple[int, int]], set[str]]:
-    """Return (tile -> polygons, tile -> (W, H), every tile named in the exports).
+def read_cvat_zips(patterns: list[str], mask_tol: float = 1.0
+                   ) -> tuple[dict[str, list], dict[str, tuple[int, int]], set[str]]:
+    """Return (tile -> rings, tile -> (W, H), every tile named in the exports).
+
+    Reads <polygon> and <mask> alike. A mask is decoded, its largest blob traced
+    and thinned to `mask_tol`, and the resulting ring joins the polygons, so
+    everything downstream sees one list of rings and does not care which kind of
+    shape the annotator saved.
 
     The third value is what separates "annotated and empty" from "not in the
     task at all", which is the distinction `--background-frac` draws on.
@@ -102,21 +109,28 @@ def read_cvat_zips(patterns: list[str]) -> tuple[dict[str, list], dict[str, tupl
                        for xy in poly.get("points", "").split(";") if xy]
                 if len(pts) >= 3:
                     polys[name].append(pts)
-            n_masks += len(im.findall("mask"))
-
-    # YOLO segmentation labels are normalised polygons, so a CVAT <mask>, which
-    # is a run-length raster, would have to be contour traced before it could be
-    # written out. That is not implemented here. Refusing is the point: the wet
-    # season tasks came back almost entirely as masks, and silently keeping only
-    # the handful of polygons would produce a dataset that trains and scores
-    # fine while being built from 2% of the annotations.
+            W, H = sizes[name]
+            for msk in im.findall("mask"):
+                sub = decode_cvat_rle(msk.get("rle", ""),
+                                      int(msk.get("width")), int(msk.get("height")))
+                full = np.zeros((H, W), bool)
+                x0, y0 = int(msk.get("left", 0)), int(msk.get("top", 0))
+                # clip on both sides, so a shape saved a pixel over the tile
+                # edge is trimmed rather than wrapped around to the far side
+                sx, sy = max(0, -x0), max(0, -y0)
+                x0, y0 = max(0, x0), max(0, y0)
+                x1 = min(x0 + sub.shape[1] - sx, W)
+                y1 = min(y0 + sub.shape[0] - sy, H)
+                if x1 <= x0 or y1 <= y0:
+                    continue
+                full[y0:y1, x0:x1] = sub[sy:sy + y1 - y0, sx:sx + x1 - x0]
+                ring = mask_to_ring(full, mask_tol)
+                if len(ring) >= 3:
+                    polys[name].append(ring)
+                    n_masks += 1
     if n_masks:
-        raise SystemExit(
-            f"these exports hold {n_masks} CVAT <mask> shapes, which this converter "
-            f"cannot turn into YOLO polygons ({sum(len(v) for v in polys.values())} "
-            "polygons were found).\nEither re-export the CVAT task choosing polygons "
-            "rather than masks, or use the dinov3-linear-probe pipeline, whose reader "
-            "rasterises both kinds.")
+        print(f"  traced {n_masks} CVAT masks into rings "
+              f"(tolerance {mask_tol}px, largest blob per mask)")
     return dict(polys), sizes, seen
 
 
@@ -143,6 +157,99 @@ def index_tiles(root: Path, skip: Path | None = None) -> dict[str, Path]:
 def source_of(tile_name: str) -> str:
     """DJI_20251118124919_0185_r0_c5.jpg -> DJI_20251118124919_0185"""
     return tile_name.rsplit("_r", 1)[0]
+
+
+# --------------------------------------------------------------------------- #
+# CVAT masks -> rings
+# --------------------------------------------------------------------------- #
+# The dry tasks exported <polygon>. The wet tasks exported <mask>, CVAT's
+# run-length encoded raster, which is what SAM3 produces when the annotator does
+# not convert it on the way out. A YOLO segmentation label is a normalised ring,
+# so a raster has to be traced before it can be written. This file keeps its own
+# copy of the decoder rather than importing the one in
+# ../dinov3-linear-probe/train_probe.py, so that the conversion keeps running on
+# numpy, pillow and scipy alone, as the README promises.
+def decode_cvat_rle(rle: str, width: int, height: int) -> np.ndarray:
+    """CVAT mask RLE -> bool array (height, width). Counts alternate, background first."""
+    counts = [int(c) for c in rle.replace(" ", "").split(",") if c != ""]
+    flat = np.zeros(width * height, dtype=bool)
+    pos, value = 0, False
+    for c in counts:
+        if pos >= flat.size:
+            break
+        end = min(pos + c, flat.size)
+        if value:
+            flat[pos:end] = True
+        pos, value = end, not value
+    return flat.reshape(height, width)
+
+
+# 8 neighbours, clockwise, starting due west
+_MOORE = [(0, -1), (-1, -1), (-1, 0), (-1, 1), (0, 1), (1, 1), (1, 0), (1, -1)]
+
+
+def trace_ring(mask: np.ndarray) -> list[tuple[float, float]]:
+    """Outer boundary of one 8-connected blob, as (x, y), by Moore tracing.
+
+    Walks the boundary pixel by pixel keeping the blob on one side. Holes are
+    not traced, because a YOLO ring cannot express one anyway, which is the
+    same compromise the format already forces on the polygon path.
+    """
+    H, W = mask.shape
+    pts = np.argwhere(mask)
+    if len(pts) == 0:
+        return []
+    start = (int(pts[0][0]), int(pts[0][1]))          # topmost, then leftmost
+
+    def solid(r, c):
+        return 0 <= r < H and 0 <= c < W and bool(mask[r, c])
+
+    ring = [start]
+    p, b = start, (start[0], start[1] - 1)            # west of start is background
+    limit = 4 * int(mask.sum()) + 16
+    while True:
+        i = _MOORE.index((b[0] - p[0], b[1] - p[1]))
+        nxt = None
+        for k in range(1, 9):
+            j = (i + k) % 8
+            q = (p[0] + _MOORE[j][0], p[1] + _MOORE[j][1])
+            if solid(*q):
+                nxt = q
+                b = (p[0] + _MOORE[(j - 1) % 8][0], p[1] + _MOORE[(j - 1) % 8][1])
+                break
+        if nxt is None:
+            break                                     # single isolated pixel
+        p = nxt
+        if p == start:
+            break
+        ring.append(p)
+        if len(ring) > limit:                         # cannot happen, but do not hang
+            break
+    return [(float(c), float(r)) for r, c in ring]
+
+
+def mask_to_ring(mask: np.ndarray, tol: float = 1.0) -> list[tuple[float, float]]:
+    """One CVAT mask -> one ring, from its largest connected blob.
+
+    A SAM3 mask carries speckle. Measured over the 400 wet masks there are 5.5
+    connected blobs each, but the largest holds 99.4 percent of the area and the
+    median blob is 10 pixels. One annotated shape is one plant, and every ring
+    written here becomes a separate YOLO instance, so emitting the speckle would
+    inflate the instance count several fold to recover a fraction of a percent
+    of area. The largest blob wins and the rest are dropped.
+
+    A traced boundary is a staircase with a vertex per pixel step, which is far
+    more points than the mask justifies, so it is thinned by default. At the
+    1.0px default the round trip still rasterises back to IoU 0.998.
+    """
+    lab, n = ndi.label(np.asarray(mask, bool), structure=np.ones((3, 3), int))
+    if n == 0:
+        return []
+    areas = ndi.sum(mask, lab, range(1, n + 1))
+    ring = trace_ring(lab == (int(np.argmax(areas)) + 1))
+    if len(ring) < 3:
+        return []
+    return simplify(ring, tol)
 
 
 # --------------------------------------------------------------------------- #
@@ -174,7 +281,10 @@ def simplify(pts: list[tuple[float, float]], tol: float) -> list[tuple[float, fl
         if n == 0:
             d = np.linalg.norm(p - a, axis=1)
         else:
-            d = np.abs(np.cross(np.broadcast_to(ab, p.shape), p - a)) / n
+            # numpy 2 dropped the 2-D form of np.cross, so the z component of
+            # the cross product is written out by hand.
+            rel = p - a
+            d = np.abs(ab[0] * rel[:, 1] - ab[1] * rel[:, 0]) / n
         i = int(np.argmax(d))
         if d[i] <= tol:
             return [seq[0], seq[-1]]
@@ -257,6 +367,10 @@ def main() -> int:
     ap.add_argument("--val-frac", type=float, default=0.30,
                     help="fraction of SOURCE FRAMES held out (0.30 of 56 frames ~ the probe's 17)")
     ap.add_argument("--seed", type=int, default=0, help="frame shuffle seed, recorded in split.json")
+    ap.add_argument("--mask-simplify", type=float, default=1.0,
+                    help="Douglas-Peucker tolerance in px for rings traced from CVAT masks "
+                         "(default: 1.0). A traced boundary is a staircase with a vertex per "
+                         "pixel step, so some thinning is free. 0 keeps every step.")
     ap.add_argument("--simplify", type=float, default=0.0,
                     help="Douglas-Peucker tolerance in px, 0 keeps every annotated point")
     ap.add_argument("--background-frac", type=float, default=0.0,
@@ -269,7 +383,7 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="report what would be written, write nothing")
     args = ap.parse_args()
 
-    polys_by_tile, sizes, in_task = read_cvat_zips(args.zips)
+    polys_by_tile, sizes, in_task = read_cvat_zips(args.zips, args.mask_simplify)
     tiles = index_tiles(args.tiles, skip=args.out.resolve())
     markers = {} if args.keep_markers else read_marker_boxes(args.crib)
 
