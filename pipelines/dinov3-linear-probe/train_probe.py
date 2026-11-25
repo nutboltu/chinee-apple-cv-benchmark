@@ -9,13 +9,22 @@ backbone unchanged, so the probe sits on exactly the same features.
     tile + polygons -> mask -> patch-grid coverage -> {pos, neg, ignore}
     frozen ViT patch tokens (N, D) -> L2 norm -> logistic regression -> p(weed)
 
-WHY THE SPLIT IS BY SOURCE IMAGE
+HOW THE SPLIT IS GROUPED, AND WHY BY FRAME IS NOT ENOUGH
 Tiles are cut 8x6 from each 8192x5460 frame, and the bottom tile row is shifted
-flush to the edge, so it overlaps the row above by 684px. Neighbouring tiles
-from one frame therefore share both content and, in the overlap band, literal
-pixels. A random split over tiles or patches leaks train into test and inflates
-every metric. Grouping by source frame is the only honest option, so --folds
-runs GroupKFold over source frames.
+flush to the edge, so it overlaps the row above by 684px. A random split over
+tiles or patches therefore leaks, and grouping by source frame fixes that much.
+
+It does not fix the larger leak. The frames themselves overlap. A Zenmuse P1 at
+30m with the 35mm lens covers about 30.8 x 20.5 m of ground and consecutive
+frames sit a median 4.1 m apart, so neighbours share 80 percent or more of what
+they see. Measured on the wet split, all 13 held-out frames were within 4.2 m
+of a training frame, meaning the same individual plants were on both sides and
+the score was partly a memory test.
+
+Pass --blocks with the csv from annotations/spatial_blocks.py and the split
+groups by patch of ground instead, so held-out ground is ground the model never
+saw. Without it the run prints a warning and the number should be read as an
+upper bound.
 
 BOUNDARY PATCHES ARE DISCARDED
 A patch straddling the polygon edge is neither weed nor background. Patches
@@ -34,6 +43,7 @@ Usage:
         --tiles '../../datasets/.../processed' --family dinov2
     python train_probe.py ... --family dinov3 --repo /path/dinov3 --weights /path/w.pth
     python train_probe.py ... --limit 20 --dry-run     # label geometry only, no backbone
+    python train_probe.py ... --blocks <processed>/frame_blocks.csv   # spatially clean split
 """
 
 from __future__ import annotations
@@ -167,6 +177,29 @@ def source_of(tile_name: str) -> str:
     return tile_name.rsplit("_r", 1)[0]
 
 
+def read_blocks(path) -> dict[str, str]:
+    """source frame -> spatial block, as written by annotations/spatial_blocks.py."""
+    if not path:
+        return {}
+    p = Path(path)
+    if not p.exists():
+        return {}
+    return {r["source"]: r["block"] for r in csv.DictReader(p.open())}
+
+
+def group_of(tile_name: str, blocks: dict[str, str] | None = None) -> str:
+    """The unit a train/test split must not straddle.
+
+    The source frame by default, which stops tiles from one frame landing on
+    both sides. That is not enough on this survey. Frames overlap on the ground
+    by 80 percent or more, so grouping by frame still puts the same plants in
+    train and test, and the held-out score is partly a memory test. Pass a block
+    map from spatial_blocks.py and the unit becomes a patch of ground instead.
+    """
+    src = source_of(tile_name)
+    return (blocks or {}).get(src, src)
+
+
 # --------------------------------------------------------------------------- #
 # Masks -> patch-grid labels
 # --------------------------------------------------------------------------- #
@@ -240,7 +273,11 @@ def main() -> int:
     ap.add_argument("--img-size", type=int, default=768)
     ap.add_argument("--pos-thresh", type=float, default=0.50)
     ap.add_argument("--neg-thresh", type=float, default=0.10)
-    ap.add_argument("--folds", type=int, default=5, help="GroupKFold folds over source frames")
+    ap.add_argument("--folds", type=int, default=5, help="GroupKFold folds over the split unit")
+    ap.add_argument("--blocks", type=Path, default=None,
+                    help="frame_blocks.csv from annotations/spatial_blocks.py. Groups the split "
+                         "by patch of ground rather than by frame, so held-out ground is ground "
+                         "the model never saw. Strongly recommended, see group_of()")
     ap.add_argument("--limit", type=int, default=None, help="use only the first N annotated tiles")
     ap.add_argument("--keep-markers", action="store_true", help="do NOT mask cardboard out of the masks")
     ap.add_argument("--dry-run", action="store_true", help="label geometry only, never loads a backbone")
@@ -248,6 +285,7 @@ def main() -> int:
 
     polys_by_tile = read_cvat_zips(args.zips)
     tiles = index_tiles(args.tiles)
+    blocks = read_blocks(args.blocks)
     crib = read_marker_boxes(args.crib) if (args.crib and not args.keep_markers) else {}
 
     usable = [n for n in sorted(polys_by_tile) if n in tiles]
@@ -259,6 +297,14 @@ def main() -> int:
     print(f"shapes                    : {shapes['total']}  "
           f"({shapes['polygons']} polygons, {shapes['masks']} masks)")
     print(f"tile images found         : {len(usable)}")
+    if blocks:
+        n_blk = len({group_of(n, blocks) for n in usable})
+        print(f"split unit                : {n_blk} spatial blocks "
+              f"(from {len({source_of(n) for n in usable})} frames)")
+    else:
+        print(f"split unit                : {len({source_of(n) for n in usable})} source frames")
+        print("                            WARNING frames overlap on the ground, so this "
+              "leaks. See --blocks")
     if missing:
         print(f"WARNING missing images    : {len(missing)} (e.g. {missing[:3]})")
     if not usable:
@@ -282,7 +328,7 @@ def main() -> int:
         print(f"positive patches : {pos:>8}  ({100*pos/tot:.1f}%)")
         print(f"negative patches : {neg:>8}  ({100*neg/tot:.1f}%)")
         print(f"ignored boundary : {ign:>8}  ({100*ign/tot:.1f}%)")
-        print(f"source frames    : {len({source_of(n) for n in usable})}")
+        print(f"split groups     : {len({group_of(n, blocks) for n in usable})}")
         print("\nDRY RUN, no backbone loaded and no model trained")
         return 0
 
@@ -304,13 +350,13 @@ def main() -> int:
                              dtype=np.float32) / 255.0
         y = label_patches(cov, args.pos_thresh, args.neg_thresh)
         keep = y >= 0
-        X.append(feats[keep]); Y.append(y[keep]); G.extend([source_of(n)] * int(keep.sum()))
+        X.append(feats[keep]); Y.append(y[keep]); G.extend([group_of(n, blocks)] * int(keep.sum()))
         if i % 20 == 0 or i == len(usable):
             print(f"  features {i}/{len(usable)}")
 
     X = np.concatenate(X); Y = np.concatenate(Y); G = np.asarray(G)
     print(f"\npatches kept     : {len(Y)}  positive {int(Y.sum())} ({100*Y.mean():.1f}%)")
-    print(f"feature dim      : {X.shape[1]}   source frames: {len(set(G))}")
+    print(f"feature dim      : {X.shape[1]}   split groups: {len(set(G))}")
 
     # ---- cross-validated probe, grouped by source frame -------------------- #
     from sklearn.linear_model import LogisticRegression
@@ -363,10 +409,12 @@ def main() -> int:
             "pos_thresh": args.pos_thresh,
             "neg_thresh": args.neg_thresh,
             "markers_masked": not args.keep_markers,
-            "split": f"GroupKFold({folds}) over source frames",
+            "split": f"GroupKFold({folds}) over "
+                     f"{'spatial blocks' if blocks else 'source frames'}",
         },
         "data": {
-            "tiles": len(usable), "frames": len(set(G)),
+            "tiles": len(usable), "frames": len({source_of(n) for n in usable}),
+            "split_groups": len(set(G)), "grouped_by": "spatial_block" if blocks else "source_frame",
             "shapes": shapes,
             "patches": int(len(Y)), "positive_rate": round(float(Y.mean()), 4),
         },

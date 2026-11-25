@@ -127,9 +127,26 @@ out, split grouped by source frame.
 
 ## Three things that decide whether those numbers mean anything
 
-**The split is grouped by source frame.** Tiles are cut 8 by 6 from one frame
-and the bottom row overlaps the row above by 684 px, so neighbouring tiles
-share literal pixels. A random split leaks train into test.
+**Grouping the split by source frame is necessary and not sufficient.** Tiles
+are cut 8 by 6 from one frame and the bottom row overlaps the row above by 684
+px, so a random split over tiles leaks outright. Grouping by frame stops that.
+
+It does not stop the frames overlapping each other, which is the larger leak. A
+Zenmuse P1 at 30 m with the 35 mm lens covers about 30.8 by 20.5 m, and
+consecutive frames sit a median 4.1 m apart, so neighbours share 80 percent or
+more of their ground. On the wet split every one of the 13 held-out frames sat
+within 4.2 m of a training frame, so the same plants were on both sides.
+
+Run `annotations/spatial_blocks.py` and pass `--blocks`. It reads each frame's
+EXIF GPS, joins frames closer than one footprint into a block, and the split
+then groups by patch of ground. Both datasets have two sites about 23 km apart,
+so a genuinely clean holdout exists for each. Any number produced without
+`--blocks` is an upper bound.
+
+```bash
+python ../../annotations/spatial_blocks.py --dataset matured-wet-30m --buffer 100
+python train_probe.py ... --blocks "$P/frame_blocks.csv"
+```
 
 **Empty tiles are not negatives.** 440 of 620 tiles came back unannotated, but
 that means nobody annotated them, not that they hold no chinee apple. All
