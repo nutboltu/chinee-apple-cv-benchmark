@@ -115,8 +115,14 @@ polygons are already drawn and the repo already reports mask IoU and Dice, so
 opposite of the usual aerial-imagery problem: there are no small objects here at
 all, so none of the small-object tricks apply.
 
-**yolo11s-seg.** YOLO11 is the current Ultralytics segmentation line and beats
-v8-seg at equal parameter count. On size, the binding constraint is 145 training
+**yolo11s-seg, with yolov8s-seg as the comparison.** YOLO11 is the current
+Ultralytics segmentation line and is reported to beat v8-seg at equal parameter
+count. That claim is from COCO and has not been checked on this data, so
+`--model yolov8s-seg.pt` runs the same pipeline on the v8 line and settles it
+here. Both families go through one code path, exactly as the probe pipeline
+takes `--family dinov2` or `--family dinov3` rather than carrying two copies of
+itself. Run names and output folders derive from the model stem, so a v8 run
+and a v11 run never collide. On size, the binding constraint is 145 training
 instances over 39 source frames, not capacity, so `s` (about 10M parameters) is
 the default and `n`/`m` are a sweep rather than an upgrade path. Run
 `--model yolo11n-seg.pt` and `--model yolo11m-seg.pt` and report all three
@@ -152,6 +158,7 @@ CC-BY-NC backbones, so this one is the only directory with that constraint.
 P=../../datasets/matured-wet-30m/processed
 python cvat_to_yolo.py --zips "$P/wet_batch_*.zip" --tiles $P --crib $P/tile_markers.csv \
     --out yolo_dataset
+python train_yolo.py --data yolo_dataset --model yolov8s-seg.pt   # the v8 line
 
 # dry season
 P=../../datasets/matured-dry-30m/processed
