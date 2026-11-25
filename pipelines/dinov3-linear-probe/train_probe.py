@@ -145,8 +145,21 @@ def read_marker_boxes(crib: Path) -> dict[str, list[tuple[int, int, int, int]]]:
     return dict(boxes)
 
 
-def index_tiles(root: Path) -> dict[str, Path]:
-    return {p.name: p for p in root.rglob("*.jpg")}
+def index_tiles(root) -> dict[str, Path]:
+    """tile filename -> path, searched recursively under one root or several.
+
+    Case insensitive on the extension, because the tiler writes .jpg while the
+    DJI originals are .JPG, and a Drive folder often ends up holding a mix. One
+    rglob pass rather than one per pattern, since this frequently runs over a
+    mounted Drive where every directory listing is a network call.
+    """
+    roots = [root] if isinstance(root, (str, Path)) else list(root)
+    out: dict[str, Path] = {}
+    for r in roots:
+        for p in Path(r).rglob("*"):
+            if p.suffix.lower() in (".jpg", ".jpeg") and p.is_file():
+                out.setdefault(p.name, p)
+    return out
 
 
 def source_of(tile_name: str) -> str:
