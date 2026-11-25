@@ -32,9 +32,7 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 from xml.dom import minidom
 
-# Dataset lives outside the repo tree in git terms (see .gitignore), one level up
-# from this scripts directory.
-DATASET = Path(__file__).resolve().parent.parent / "datasets" / "matured-dry-30m"
+from tile_images import DEFAULT_DATASET, dataset_root
 
 BATCH_RE = re.compile(r"^batch_\d+$")
 
@@ -55,12 +53,15 @@ def write_xml(root: ET.Element, path: Path) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--processed", type=Path, default=DATASET / "processed")
+    ap.add_argument("--dataset", default=DEFAULT_DATASET,
+                    help=f"dataset name under datasets/, or a path (default: {DEFAULT_DATASET})")
+    ap.add_argument("--processed", type=Path, default=None,
+                    help="tiling output directory (default: <dataset>/processed)")
     ap.add_argument("--size", type=int, default=100, help="tiles per batch (default: 100)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
-    proc: Path = args.processed.resolve()
+    proc: Path = (args.processed or dataset_root(args.dataset) / "processed").resolve()
     tiles = collect_tiles(proc)
     if not tiles:
         print(f"error: no tiles found in {proc}")

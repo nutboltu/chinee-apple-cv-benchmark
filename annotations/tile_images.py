@@ -58,9 +58,33 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage as ndi
 
-# Dataset lives outside the repo tree in git terms (see .gitignore), one level up
-# from this scripts directory.
-DATASET = Path(__file__).resolve().parent.parent / "datasets" / "matured-dry-30m"
+# Datasets live outside the repo tree in git terms (see .gitignore), one level up
+# from this scripts directory. Pick one with --dataset; the default keeps the
+# original dry-season behaviour so existing commands are unaffected.
+DATASETS = Path(__file__).resolve().parent.parent / "datasets"
+DEFAULT_DATASET = "matured-dry-30m"
+
+
+def dataset_root(name: str) -> Path:
+    """--dataset takes a name under datasets/, or any path."""
+    p = Path(name).expanduser()
+    return p.resolve() if (p.is_absolute() or len(p.parts) > 1) else DATASETS / name
+
+# Detection tuning per season. The dry profile is the original behaviour. The wet
+# profile adds the blob colour gates, because saltbush passes the per-pixel test.
+# --profile overrides the choice; otherwise it follows the dataset name.
+PROFILES = {
+    "dry": dict(v_min=215, s_max=45, open_size=3, close_iter=8, min_blob_area=800,
+                min_tile_px=200, min_blob_v=0.0, max_chroma=255.0, min_fill=0.0),
+    "wet": dict(v_min=215, s_max=45, open_size=3, close_iter=8, min_blob_area=800,
+                min_tile_px=200, min_blob_v=210.0, max_chroma=18.0, min_fill=0.0),
+}
+TUNABLES = tuple(PROFILES["dry"])
+
+
+def profile_for(dataset: str) -> str:
+    return "wet" if "wet" in Path(dataset).name.lower() else "dry"
+
 
 # Drone stills are far above Pillow's decompression-bomb threshold.
 Image.MAX_IMAGE_PIXELS = None
@@ -71,7 +95,7 @@ MANIFEST_FIELDS = [
 ]
 MARKER_FIELDS = [
     "source", "blob", "area_px", "x0", "y0", "x1", "y1",
-    "bbox_w", "bbox_h", "fill", "tiles",
+    "bbox_w", "bbox_h", "fill", "mean_v", "chroma", "tiles",
 ]
 
 
@@ -92,9 +116,23 @@ def tile_origins(extent: int, tile: int, edge: str) -> list[tuple[int, int]]:
 
 
 def detect_markers(
-    im: Image.Image, v_min: int, s_max: int, open_size: int, close_iter: int, min_blob_area: int
+    im: Image.Image, v_min: int, s_max: int, open_size: int, close_iter: int, min_blob_area: int,
+    min_blob_v: float = 0.0, max_chroma: float = 255.0, min_fill: float = 0.0,
 ) -> tuple[np.ndarray, list[dict]]:
-    """Find solid bright/desaturated blobs. Returns (clean bool mask, blob records)."""
+    """Find solid bright/desaturated blobs. Returns (clean bool mask, blob records).
+
+    The per-pixel test (bright + desaturated) is only the first pass. It is enough
+    on the dry set, where the background is brown grass, but on the wet set the
+    pale silvery-blue saltbush passes it too and swamps the real boards roughly
+    four to one. The three optional gates below run on whole blobs, where white
+    cardboard and foliage separate cleanly (measured over the wet set):
+
+                       mean_v     chroma    fill
+        white board    227-248     7-16     0.58-0.68
+        saltbush       161-198    19-35     0.11-0.50
+
+    They default to off, so the dry set behaves exactly as before. See --profile.
+    """
     hsv = im.convert("HSV")
     s = np.asarray(hsv.getchannel("S"))
     v = np.asarray(hsv.getchannel("V"))
@@ -124,21 +162,42 @@ def detect_markers(
     if keep_ids.size == 0:
         return np.zeros_like(mask), []
 
+    rgb = np.asarray(im)
+    objs = ndi.find_objects(lab)   # once, not once per blob
+
     blobs: list[dict] = []
-    for bid, sl in zip(keep_ids, [ndi.find_objects(lab)[i - 1] for i in keep_ids]):
-        ys, xs = sl
+    kept_ids: list[int] = []
+    for bid in keep_ids:
+        ys, xs = objs[bid - 1]
         comp_area = int(areas[bid - 1])
         bw, bh = xs.stop - xs.start, ys.stop - ys.start
+        fill = comp_area / (bw * bh)
+
+        # Colour stats over the blob pixels only, never the bbox, or the
+        # background between a ragged bush's leaves drags the numbers around.
+        px = rgb[ys, xs][lab[ys, xs] == bid].astype(np.int16)
+        mean_v = float(px.mean())
+        chroma = float((px.max(axis=1) - px.min(axis=1)).mean())
+
+        if mean_v < min_blob_v or chroma > max_chroma or fill < min_fill:
+            continue
+
+        kept_ids.append(int(bid))
         blobs.append({
             "blob": int(bid),
             "area_px": comp_area,
             "x0": int(xs.start), "y0": int(ys.start),
             "x1": int(xs.stop), "y1": int(ys.stop),
             "bbox_w": int(bw), "bbox_h": int(bh),
-            "fill": round(comp_area / (bw * bh), 3),
+            "fill": round(fill, 3),
+            "mean_v": round(mean_v, 1),
+            "chroma": round(chroma, 1),
         })
 
-    clean = np.isin(lab, keep_ids)
+    if not kept_ids:
+        return np.zeros_like(mask), []
+
+    clean = np.isin(lab, kept_ids)
     del lab
     return clean, blobs
 
@@ -147,7 +206,7 @@ def process_one(
     src: Path, out_dir: Path, tile: int, edge: str, quality: int,
     fill: tuple[int, int, int], keep_exif: bool, overwrite: bool, keep_mode: str,
     v_min: int, s_max: int, open_size: int, close_iter: int, min_blob_area: int, min_tile_px: int,
-    dry_run: bool,
+    min_blob_v: float, max_chroma: float, min_fill: float, dry_run: bool,
 ) -> tuple[str, list[dict], list[dict], str | None]:
     """Tile one image, writing only the tiles selected by `keep_mode`."""
     tile_rows: list[dict] = []
@@ -158,7 +217,8 @@ def process_one(
             width, height = im.size
             exif = raw.info.get("exif", b"") if keep_exif else b""
 
-        mask, blobs = detect_markers(im, v_min, s_max, open_size, close_iter, min_blob_area)
+        mask, blobs = detect_markers(im, v_min, s_max, open_size, close_iter, min_blob_area,
+                                     min_blob_v, max_chroma, min_fill)
 
         xs = tile_origins(width, tile, edge)
         ys = tile_origins(height, tile, edge)
@@ -212,7 +272,8 @@ def process_one(
         for b in blobs:
             marker_rows.append({
                 "source": src.name, **{k: b[k] for k in
-                    ("blob", "area_px", "x0", "y0", "x1", "y1", "bbox_w", "bbox_h", "fill")},
+                    ("blob", "area_px", "x0", "y0", "x1", "y1", "bbox_w", "bbox_h",
+                     "fill", "mean_v", "chroma")},
                 "tiles": " ".join(blob_tiles[b["blob"]]),
             })
 
@@ -225,8 +286,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("--input", type=Path, default=DATASET / "raw", help="directory of source images")
-    ap.add_argument("--output", type=Path, default=None, help="output directory (default: the dataset processed/ dir)")
+    ap.add_argument("--dataset", default=DEFAULT_DATASET,
+                    help=f"dataset name under datasets/, or a path (default: {DEFAULT_DATASET})")
+    ap.add_argument("--profile", choices=tuple(PROFILES), default=None,
+                    help="detection profile (default: inferred from the dataset name)")
+    ap.add_argument("--input", type=Path, default=None, help="directory of source images (default: <dataset>/raw)")
+    ap.add_argument("--output", type=Path, default=None, help="output directory (default: <dataset>/processed)")
     ap.add_argument("--pattern", default="*.JPG", help="glob for source images (default: *.JPG)")
     ap.add_argument("--tile", type=int, default=1024, help="tile size in pixels (default: 1024)")
     ap.add_argument("--edge", choices=("shift", "pad", "crop"), default="shift", help="how to handle partial edge tiles")
@@ -240,17 +305,31 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="detect and report, write no tiles")
     ap.add_argument("--clean", action="store_true", help="delete tiles in the output dir that are not kept this run")
     ap.add_argument("--fresh", action="store_true", help="delete the entire output directory before running")
-    # detection tuning
-    ap.add_argument("--v-min", type=int, default=215, help="min HSV value for marker pixels (default: 215)")
-    ap.add_argument("--s-max", type=int, default=45, help="max HSV saturation for marker pixels (default: 45)")
-    ap.add_argument("--open-size", type=int, default=3, help="morphological opening kernel (default: 3)")
-    ap.add_argument("--close-iter", type=int, default=8, help="3x3 closing iterations to merge board fragments (default: 8)")
-    ap.add_argument("--min-blob-area", type=int, default=800, help="min solid blob area in px (default: 800)")
-    ap.add_argument("--min-tile-px", type=int, default=200, help="min marker px for a tile to be kept (default: 200)")
+    # Detection tuning. These default to None and are filled from the profile, so
+    # the summary below can report which values actually took effect.
+    ap.add_argument("--v-min", type=int, default=None, help="min HSV value for marker pixels")
+    ap.add_argument("--s-max", type=int, default=None, help="max HSV saturation for marker pixels")
+    ap.add_argument("--open-size", type=int, default=None, help="morphological opening kernel")
+    ap.add_argument("--close-iter", type=int, default=None, help="3x3 closing iterations to merge board fragments")
+    ap.add_argument("--min-blob-area", type=int, default=None, help="min solid blob area in px")
+    ap.add_argument("--min-tile-px", type=int, default=None, help="min marker px for a tile to be kept")
+    # Blob colour gates, the wet-season additions. See detect_markers.
+    ap.add_argument("--min-blob-v", type=float, default=None,
+                    help="min mean brightness over a blob's own pixels (wet: 210)")
+    ap.add_argument("--max-chroma", type=float, default=None,
+                    help="max mean channel spread over a blob; white board is neutral (wet: 18)")
+    ap.add_argument("--min-fill", type=float, default=None,
+                    help="min blob area / bbox area; cardboard is solid, foliage ragged")
     args = ap.parse_args()
 
-    in_dir: Path = args.input.resolve()
-    out_dir: Path = (args.output or DATASET / "processed").resolve()
+    profile = args.profile or profile_for(args.dataset)
+    for k, v in PROFILES[profile].items():
+        if getattr(args, k) is None:
+            setattr(args, k, v)
+
+    root = dataset_root(args.dataset)
+    in_dir: Path = (args.input or root / "raw").resolve()
+    out_dir: Path = (args.output or root / "processed").resolve()
 
     if not in_dir.is_dir():
         print(f"error: input directory not found: {in_dir}", file=sys.stderr)
@@ -285,11 +364,21 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     workers = args.workers if args.workers > 0 else max(1, (os.cpu_count() or 2) - 1)
 
+    print(f"dataset  : {args.dataset}  (profile: {profile})")
     print(f"input    : {in_dir}")
     print(f"output   : {out_dir}")
     print(f"images   : {len(sources)}")
     print(f"tile     : {args.tile}x{args.tile}  edge={args.edge}  keep={args.keep}  quality={args.quality}  workers={workers}")
-    print(f"detect   : v>{args.v_min} s<{args.s_max} open={args.open_size} close={args.close_iter} min_blob={args.min_blob_area}px min_tile={args.min_tile_px}px")
+    print(f"detect   : v>{args.v_min} s<{args.s_max} open={args.open_size} "
+          f"close={args.close_iter} min_blob={args.min_blob_area}px min_tile={args.min_tile_px}px")
+    gates = []
+    if args.min_blob_v > 0:
+        gates.append(f"mean_v>={args.min_blob_v:g}")
+    if args.max_chroma < 255:
+        gates.append(f"chroma<={args.max_chroma:g}")
+    if args.min_fill > 0:
+        gates.append(f"fill>={args.min_fill:g}")
+    print(f"blob gate: {' '.join(gates) if gates else 'none (per-pixel test only)'}")
     if args.dry_run:
         print("mode     : DRY RUN (no tiles written)")
     print()
@@ -302,7 +391,8 @@ def main() -> int:
         fill=fill, keep_exif=args.keep_exif, overwrite=args.overwrite,
         keep_mode=args.keep, v_min=args.v_min, s_max=args.s_max,
         open_size=args.open_size, close_iter=args.close_iter, min_blob_area=args.min_blob_area,
-        min_tile_px=args.min_tile_px, dry_run=args.dry_run,
+        min_tile_px=args.min_tile_px, min_blob_v=args.min_blob_v, max_chroma=args.max_chroma,
+        min_fill=args.min_fill, dry_run=args.dry_run,
     )
 
     with ProcessPoolExecutor(max_workers=workers) as pool:

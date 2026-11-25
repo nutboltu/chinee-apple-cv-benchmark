@@ -42,6 +42,7 @@ import argparse
 import csv
 import collections
 import json
+import sys
 import math
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -52,15 +53,28 @@ from PIL import Image, ImageDraw
 
 Image.MAX_IMAGE_PIXELS = None
 
-# Dataset lives outside the repo tree in git terms (see .gitignore), one level up
-# from this scripts directory.
-DATASET = Path(__file__).resolve().parent.parent / "datasets" / "matured-dry-30m"
-
+from tile_images import DEFAULT_DATASET, dataset_root
 
 # Hue windows in PIL's 0-255 space. Pink is kept away from the 0-20 red-brown
 # band because sunlit soil at the board edge otherwise reads as pink.
-BLUE = (105, 175)
-PINK = (210, 252)
+# Each entry is (hue_lo, hue_hi, s_min, v_min).
+COLOUR_WINDOWS = {
+    "blue": (105, 175, 60, 60),
+    "pink": (210, 252, 80, 80),
+}
+
+# Which arrow colours a flight actually used. The dry flight used both. The wet
+# flight used pink only, so blue must be switched off there: the blue window sits
+# over cyan-blue, and the pale silvery saltbush and board shadows drift into it,
+# which would invent a blue class that was never sprayed in the field.
+DATASET_COLOURS = {
+    "dry": ("blue", "pink"),
+    "wet": ("pink",),
+}
+
+
+def colours_for(dataset: str) -> tuple[str, ...]:
+    return DATASET_COLOURS["wet" if "wet" in Path(dataset).name.lower() else "dry"]
 # The single annotation label. It doubles as the text prompt handed to SAM3,
 # so it is also what the model is asked to segment.
 PLANT_LABEL = "chinee_apple_matured_30m"
@@ -107,29 +121,33 @@ def arrow_bearing(mask: np.ndarray) -> float | None:
     return math.degrees(math.atan2(vec[1], vec[0])) % 360
 
 
-def classify(src_path: Path, rows: list[dict], bearing_on: bool = False) -> list[dict]:
+def classify(src_path: Path, rows: list[dict], bearing_on: bool = False,
+             colours: tuple[str, ...] = ("blue", "pink")) -> list[dict]:
     hsv_full = np.asarray(Image.open(src_path).convert("RGB").convert("HSV"))
     out = []
     for r in rows:
         x0, y0, x1, y1 = (int(r[k]) for k in ("x0", "y0", "x1", "y1"))
         reg = hsv_full[y0:y1, x0:x1]
-        bm = arrow_mask(reg, *BLUE, 60, 60)
-        pm = arrow_mask(reg, *PINK, 80, 80)
-        nb, np_ = int(bm.sum()), int(pm.sum())
 
-        if max(nb, np_) < MIN_PAINT_PX:
+        # Count paint for the enabled colours only. A disabled colour still gets
+        # a 0 column so markers_classified.csv keeps one schema across datasets.
+        masks = {c: arrow_mask(reg, *COLOUR_WINDOWS[c]) for c in colours}
+        counts = {c: int(m.sum()) for c, m in masks.items()}
+        # max() returns the first maximal key, and COLOUR_WINDOWS is ordered
+        # blue then pink, so blue still wins a tie as it always did.
+        best = max(counts, key=counts.get) if counts else None
+
+        if best is None or counts[best] < MIN_PAINT_PX:
             colour = "blank" if int(r["area_px"]) >= MIN_BLANK_AREA else "unknown"
             bearing = None
-        elif nb >= np_:
-            colour, bearing = "blue", (arrow_bearing(bm) if bearing_on else None)
         else:
-            colour, bearing = "pink", (arrow_bearing(pm) if bearing_on else None)
+            colour = best
+            bearing = arrow_bearing(masks[best]) if bearing_on else None
 
         out.append({
             **r,
             "arrow_colour": colour,
-            "blue_px": nb,
-            "pink_px": np_,
+            **{f"{c}_px": counts.get(c, 0) for c in COLOUR_WINDOWS},
             "arrow_deg": "" if bearing is None else f"{bearing:.1f}",
         })
     return out
@@ -210,13 +228,30 @@ def build_xml(tiles: list[dict], markers: list[dict], out_path: Path,
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--raw", type=Path, default=DATASET / "raw", help="directory of source images")
-    ap.add_argument("--processed", type=Path, default=DATASET / "processed", help="tiling output directory")
+    ap.add_argument("--dataset", default=DEFAULT_DATASET,
+                    help=f"dataset name under datasets/, or a path (default: {DEFAULT_DATASET})")
+    ap.add_argument("--raw", type=Path, default=None, help="directory of source images (default: <dataset>/raw)")
+    ap.add_argument("--processed", type=Path, default=None, help="tiling output directory (default: <dataset>/processed)")
+    ap.add_argument("--arrow-colours", default=None,
+                    help="comma-separated arrow colours in use (default: by dataset; wet is pink only)")
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--include-markers", action="store_true", help="also export marker rectangles (default: plants only)")
     ap.add_argument("--bearing", action="store_true", help="estimate arrow bearing (UNRELIABLE at this GSD; ~50%% correct)")
     ap.add_argument("--preview", type=int, default=0, help="render N validation crops with the arrow overlay")
     args = ap.parse_args()
+
+    root = dataset_root(args.dataset)
+    args.raw = (args.raw or root / "raw").resolve()
+    args.processed = (args.processed or root / "processed").resolve()
+    colours = (tuple(c.strip() for c in args.arrow_colours.split(",") if c.strip())
+               if args.arrow_colours else colours_for(args.dataset))
+    unknown = [c for c in colours if c not in COLOUR_WINDOWS]
+    if unknown:
+        print(f"error: unknown arrow colour(s) {unknown}, known: {list(COLOUR_WINDOWS)}",
+              file=sys.stderr)
+        return 1
+    print(f"dataset : {args.dataset}")
+    print(f"arrows  : {', '.join(colours)}")
 
     tiles = list(csv.DictReader(open(args.processed / "manifest.csv")))
     markers = list(csv.DictReader(open(args.processed / "markers.csv")))
@@ -226,7 +261,7 @@ def main() -> int:
 
     classified: list[dict] = []
     for src in sorted(by_src):
-        classified.extend(classify(args.raw / src, by_src[src], args.bearing))
+        classified.extend(classify(args.raw / src, by_src[src], args.bearing, colours))
 
     fields = list(markers[0].keys()) + ["arrow_colour", "blue_px", "pink_px", "arrow_deg"]
     with (args.processed / "markers_classified.csv").open("w", newline="") as fh:
@@ -246,7 +281,7 @@ def main() -> int:
     if args.include_markers:
         labels.append({"name": "marker", "type": "rectangle", "color": "#00e5ff", "attributes": [
             {"name": "arrow_colour", "mutable": True, "input_type": "select",
-             "default_value": "blank", "values": ["blue", "pink", "blank", "unknown"]},
+             "default_value": "blank", "values": [*colours, "blank", "unknown"]},
             {"name": "marker_uid", "mutable": False, "input_type": "text",
              "default_value": "", "values": []},
         ]})
@@ -254,7 +289,7 @@ def main() -> int:
         {"name": "marker_uid", "mutable": True, "input_type": "text",
          "default_value": "", "values": []},
         {"name": "class", "mutable": True, "input_type": "select",
-         "default_value": "unsure", "values": ["blue", "pink", "blank", "unsure"]},
+         "default_value": "unsure", "values": [*colours, "blank", "unsure"]},
         {"name": "partial", "mutable": True, "input_type": "checkbox",
          "default_value": "false", "values": []},
     ]})
