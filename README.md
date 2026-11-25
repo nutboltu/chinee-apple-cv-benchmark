@@ -3,6 +3,7 @@
 [![dinov3-kmeans-cluster](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/pipelines/dinov3-kmeans-cluster/kmeans_colab.ipynb)
 [![dinov3-linear-probe](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/pipelines/dinov3-linear-probe/probe_colab.ipynb)
 [![yolo11-seg](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/pipelines/yolo11-seg/yolo_colab.ipynb)
+[![yolov8-seg](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/nutboltu/chinee-apple-cv-benchmark/blob/main/pipelines/yolov8-seg/yolov8_colab.ipynb)
 
 
 PhD research repository for evaluating computer-vision models on detecting
@@ -20,6 +21,7 @@ runtime, and the scripts used to evaluate it on Chinee apple imagery.
 | [`pipelines/dinov3-kmeans-cluster/`](./pipelines/dinov3-kmeans-cluster) | DINOv3 / DINOv2 ViT | **Annotation-free.** KMeans over frozen patch tokens, then a human picks which cluster is the weed, once per run. Needs no labels, but needs a person every time. | Stage 1 |
 | [`pipelines/dinov3-linear-probe/`](./pipelines/dinov3-linear-probe) | DINOv3 / DINOv2 ViT | **Supervised.** Logistic-regression head on frozen tokens, trained on the CVAT and SAM3 polygons. Trains once, then runs unattended. Patch AP 0.77, instance mAP 0.15 on held-out frames. | Trained |
 | [`pipelines/yolo11-seg/`](./pipelines/yolo11-seg) | YOLO11-seg | **Supervised, fine-tuned.** Instance segmentation trained end to end on the same CVAT and SAM3 polygons. Nothing frozen, so it has the spatial prior the probe lacks and predicts separated plants rather than a dense score map. | Scripted, not yet trained |
+| [`pipelines/yolov8-seg/`](./pipelines/yolov8-seg) | YOLOv8-seg | **Supervised, fine-tuned.** The same pipeline on the previous Ultralytics line, sharing one implementation through the root `yoloseg` package. Exists to test, on this data, the claim that YOLO11 beats v8-seg at equal parameter count. | Scripted, not yet trained |
 | [`pipelines/dinov3-cafe/`](./pipelines/dinov3-cafe) | DINOv3.txt ViT-L/16 + CAFe-DINO | **Open-vocabulary, no training.** Text prompts such as "chinee apple" against cost-aggregated DINOv3 text-image similarity, giving full-resolution masks. Add a class by changing the prompt, not by retraining. The notebook also carries an older CLS-saliency demo and a crop-based probe, both superseded by dinov3-linear-probe. | Exploratory |
 | [`triage/`](./triage) | - (Pillow only) | **Pre-annotation triage.** Narrows thousands of UAV frames to the ones actually containing chinee apple, before anything reaches CVAT. EXIF/GPS manifest → GPS dedup (~84% frame overlap, so ~2/3 are redundant) → one threaded proxy pass → bulk keep/skip in an HTML page or contact sheets → list of originals to annotate. | Tool |
 | [`annotations/`](./annotations) | - | **Dataset preparation.** Tiles 8192x5460 stills into 1024x1024, detects the cardboard ground-truth markers, keeps only tiles containing one, batches them for CVAT, and filters the finished exports down to annotated frames. | Tool |
@@ -44,6 +46,7 @@ chinee-apple-cv-benchmark/
 │   ├── dinov3-kmeans-cluster/  annotation-free, pick a cluster
 │   ├── dinov3-linear-probe/    trained on CVAT + SAM3 polygons
 │   ├── yolo11-seg/             fine-tuned instance segmentation
+│   ├── yolov8-seg/             the same, on the YOLOv8 line
 │   └── dinov3-cafe/            open-vocabulary, prompted with text
 ├── tools/               ← not pipelines
 │   └── colab-ssh/         SSH into a Colab VM

@@ -142,6 +142,14 @@ A note for publication: Ultralytics is AGPL-3.0, which reaches any code you
 distribute that links it. The other pipelines in this repo are Apache or
 CC-BY-NC backbones, so this one is the only directory with that constraint.
 
+## Where the code lives
+
+The conversion, training and scoring code is shared with
+[`../yolov8-seg`](../yolov8-seg) and lives in the repo-root
+[`yoloseg`](../../yoloseg) package, beside `backbones` and `metrics`. The
+scripts in this directory are entry points that set the default model, so a fix
+reaches both families at once.
+
 ## Files
 
 | file | purpose |

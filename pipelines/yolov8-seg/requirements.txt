@@ -1,0 +1,11 @@
+# Training and inference. ultralytics pulls torch, torchvision and opencv.
+ultralytics>=8.3.0
+torch
+torchvision
+
+# cvat_to_yolo.py and the scoring half of evaluate.py need only these, so the
+# conversion and the self-test run on a laptop without the lines above.
+numpy
+pillow
+scipy
+scikit-learn
