@@ -272,7 +272,20 @@ a subset of tiles to even quantify.
 Re-run with `--seed 1`, `--seed 2` and so on and report the spread, which is
 what `cvat_to_yolo.py` records the seed in `split.json` for.
 
-**The split is grouped by source frame.** Tiles are cut 8x6 from one 8192x5460
-frame and the bottom row overlaps the row above by 684px, so neighbouring tiles
-share literal pixels. Splitting over tiles leaks train into test and inflates
-everything.
+**Grouping the split by source frame is necessary and not sufficient.** Tiles
+are cut 8x6 from one 8192x5460 frame and the bottom row overlaps the row above
+by 684px, so splitting over tiles leaks outright. Grouping by frame stops that,
+and does not stop the frames overlapping each other.
+
+A Zenmuse P1 at 30 m with the 35 mm lens covers about 30.8 by 20.5 m, and
+consecutive frames sit a median 4.1 m apart, so neighbours share 80 percent or
+more of their ground. Every number on the dry and wet YOLO pages was produced
+without this fix and should be read as an upper bound.
+
+```bash
+python ../../annotations/spatial_blocks.py --dataset matured-wet-30m --buffer 100
+python cvat_to_yolo.py ... --blocks "$P/frame_blocks.csv" --val-groups block_03
+```
+
+`--val-groups` names the held-out block, so the site swap can be run in both
+directions rather than left to a shuffle.

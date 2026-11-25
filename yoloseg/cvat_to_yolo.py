@@ -17,12 +17,18 @@ outside a polygon as background, so feeding those tiles in would train the head
 to suppress the plants it is supposed to find. `--background-frac` can add some
 anyway, for the ablation that demonstrates this, and defaults to 0.
 
-THE SPLIT IS GROUPED BY SOURCE FRAME
+HOW THE SPLIT IS GROUPED
 Tiles are cut 8x6 from one 8192x5460 frame and the bottom row is shifted flush
-to the edge, so it overlaps the row above by 684px. Neighbouring tiles share
-content and, in the overlap band, literal pixels. Splitting over tiles leaks
-train into val. Frames are shuffled under `--seed` and split whole, and the
-resulting frame lists are written to split.json so a run can be repeated.
+to the edge, so it overlaps the row above by 684px. Splitting over tiles leaks
+train into val, so whole frames are shuffled under `--seed` and split, and the
+resulting lists go to split.json so a run can be repeated.
+
+Grouping by frame is not enough on this survey. The frames overlap each other.
+A Zenmuse P1 at 30m with the 35mm lens covers about 30.8 x 20.5 m and
+consecutive frames sit a median 4.1 m apart, so neighbours share 80 percent or
+more of their ground and the same plants land in both halves. Pass --blocks
+with the csv from annotations/spatial_blocks.py to group by patch of ground
+instead, and --val-groups to choose which patch is held out.
 
 CARDBOARD IS PAINTED OUT OF THE IMAGERY
 The field markers are white cardboard that exists only because this was a
@@ -157,6 +163,27 @@ def index_tiles(root: Path, skip: Path | None = None) -> dict[str, Path]:
 def source_of(tile_name: str) -> str:
     """DJI_20251118124919_0185_r0_c5.jpg -> DJI_20251118124919_0185"""
     return tile_name.rsplit("_r", 1)[0]
+
+
+def read_blocks(path: Path | None) -> dict[str, str]:
+    """source frame -> spatial block, as written by annotations/spatial_blocks.py."""
+    if not path or not Path(path).exists():
+        return {}
+    return {r["source"]: r["block"] for r in csv.DictReader(Path(path).open())}
+
+
+def group_of(tile_name: str, blocks: dict[str, str] | None = None) -> str:
+    """The unit the split must not straddle.
+
+    The source frame by default. That stops tiles from one frame landing on
+    both sides, but not the frames overlapping each other, which on this survey
+    is the larger leak. A Zenmuse P1 at 30m with the 35mm lens covers about
+    30.8 x 20.5 m and consecutive frames sit a median 4.1 m apart, so
+    neighbours share 80 percent or more of their ground and the same plants end
+    up in train and val. Pass --blocks and the unit becomes a patch of ground.
+    """
+    src = source_of(tile_name)
+    return (blocks or {}).get(src, src)
 
 
 # --------------------------------------------------------------------------- #
@@ -366,7 +393,15 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=Path("yolo_dataset"))
     ap.add_argument("--val-frac", type=float, default=0.30,
                     help="fraction of SOURCE FRAMES held out (0.30 of 56 frames ~ the probe's 17)")
-    ap.add_argument("--seed", type=int, default=0, help="frame shuffle seed, recorded in split.json")
+    ap.add_argument("--seed", type=int, default=0, help="shuffle seed, recorded in split.json")
+    ap.add_argument("--val-groups", nargs="+", default=None,
+                    help="hold out these groups by name instead of shuffling, e.g. "
+                         "--val-groups block_01. With only two blocks the shuffle cannot "
+                         "give you both directions of the site swap, this can")
+    ap.add_argument("--blocks", type=Path, default=None,
+                    help="frame_blocks.csv from annotations/spatial_blocks.py. Splits by patch "
+                         "of ground rather than by frame, so held-out ground is ground the model "
+                         "never saw. Strongly recommended, see group_of()")
     ap.add_argument("--mask-simplify", type=float, default=1.0,
                     help="Douglas-Peucker tolerance in px for rings traced from CVAT masks "
                          "(default: 1.0). A traced boundary is a staircase with a vertex per "
@@ -408,25 +443,38 @@ def main() -> int:
         chosen_bg = sorted(rng.sample(empty, k))
         print(f"background tiles added   : {len(chosen_bg)}")
 
-    # ---- split whole source frames ---------------------------------------- #
+    # ---- split whole groups, a frame or a patch of ground ------------------ #
+    blocks = read_blocks(args.blocks)
     members: dict[str, list[str]] = collections.defaultdict(list)
     for n in annotated + chosen_bg:
-        members[source_of(n)].append(n)
+        members[group_of(n, blocks)].append(n)
     frames = sorted(members)
-    shuffled = frames[:]
-    rng.shuffle(shuffled)
-    n_val = max(1, int(round(len(shuffled) * args.val_frac))) if args.val_frac > 0 else 0
-    val_frames = sorted(shuffled[:n_val])
-    train_frames = sorted(shuffled[n_val:])
+    if args.val_groups:
+        unknown = [g for g in args.val_groups if g not in members]
+        if unknown:
+            raise SystemExit(f"--val-groups named {unknown}, which hold no annotated tiles.\n"
+                             f"available: {frames}")
+        val_frames = sorted(args.val_groups)
+        train_frames = sorted(g for g in frames if g not in set(val_frames))
+    else:
+        shuffled = frames[:]
+        rng.shuffle(shuffled)
+        n_val = max(1, int(round(len(shuffled) * args.val_frac))) if args.val_frac > 0 else 0
+        val_frames = sorted(shuffled[:n_val])
+        train_frames = sorted(shuffled[n_val:])
     if not train_frames:
-        raise SystemExit(f"--val-frac {args.val_frac} left no training frames")
+        raise SystemExit(f"the split left no training groups. available: {frames}")
 
     split = {"train": train_frames, "val": val_frames}
     counts = {s: {"frames": len(f), "tiles": sum(len(members[k]) for k in f)} for s, f in split.items()}
     n_poly = {s: sum(len(polys_by_tile.get(t, ())) for k in f for t in members[k]) for s, f in split.items()}
-    print(f"\nsplit seed {args.seed}, grouped by source frame")
+    unit = "block" if blocks else "frame"
+    how = f"holding out {' '.join(args.val_groups)}" if args.val_groups else f"seed {args.seed}"
+    print(f"\nsplit {how}, grouped by {'spatial block' if blocks else 'source frame'}")
+    if not blocks:
+        print("  WARNING frames overlap on the ground, so this leaks. See --blocks")
     for s in ("train", "val"):
-        print(f"  {s:<5} {counts[s]['frames']:>3} frames  {counts[s]['tiles']:>4} tiles  "
+        print(f"  {s:<5} {counts[s]['frames']:>3} {unit}s  {counts[s]['tiles']:>4} tiles  "
               f"{n_poly[s]:>4} polygons")
 
     # ---- geometry summary, useful before committing a GPU ------------------ #
@@ -508,7 +556,8 @@ def main() -> int:
             "zips": args.zips, "seed": args.seed, "val_frac": args.val_frac,
             "simplify_px": args.simplify, "background_frac": args.background_frac,
             "markers_painted_out": bool(markers),
-            "split": "whole source frames, grouped",
+            "split": f"whole {unit}s, grouped",
+            "grouped_by": "spatial_block" if blocks else "source_frame",
         },
         "data": {
             "class": CLASS_NAME,
